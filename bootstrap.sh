@@ -82,7 +82,7 @@ create_directory_structure() {
 
     log_info "Creating directory structure..."
 
-    mkdir -p "$project_dir"/{.claude,specs/features,scripts,src,docs}
+    mkdir -p "$project_dir"/{.claude,specs/features,src,docs}
 
     log_success "Directory structure created"
 }
@@ -250,54 +250,6 @@ When working on a feature in this project:
 - Do not modify files outside your feature boundary
 - Update status log at each milestone
 EOF
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Create setup script for MCP dependencies
-    # ─────────────────────────────────────────────────────────────────────────
-    cat > "$project_dir/scripts/setup-mcp.sh" << 'SCRIPT_EOF'
-#!/bin/bash
-set -e
-
-echo "Setting up MCP servers and dependencies..."
-
-# Check for Node.js
-if ! command -v node &> /dev/null; then
-    echo "Error: Node.js is required but not installed."
-    echo "Please install Node.js from https://nodejs.org/"
-    exit 1
-fi
-
-# Check for npx
-if ! command -v npx &> /dev/null; then
-    echo "Error: npx is required but not installed."
-    echo "Please install npm/npx with Node.js"
-    exit 1
-fi
-
-echo "Pre-caching MCP server packages..."
-
-# Pre-install MCP packages to avoid delays during Claude sessions
-npx -y @upstash/context7-mcp@latest --help 2>/dev/null || true
-npx -y @anthropic/browseruse-mcp@latest --help 2>/dev/null || true
-
-echo ""
-echo "MCP servers ready!"
-echo ""
-echo "Available servers:"
-echo "  - context7: Documentation and code context lookup"
-echo "  - browseruse: Web browser automation"
-echo ""
-
-# Check for Claude Code
-if command -v claude &> /dev/null; then
-    echo "Claude Code CLI: $(claude --version 2>/dev/null || echo 'installed')"
-else
-    echo "Warning: Claude Code CLI not found in PATH"
-    echo "Install from: https://claude.ai/code"
-fi
-SCRIPT_EOF
-
-    chmod +x "$project_dir/scripts/setup-mcp.sh"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Create environment template
@@ -504,6 +456,56 @@ EOF
 }
 
 #───────────────────────────────────────────────────────────────────────────────
+# Quality Standards Template
+#───────────────────────────────────────────────────────────────────────────────
+
+create_standards() {
+    local project_dir="$1"
+
+    log_info "Creating quality standards template..."
+
+    # Check if template exists in workflow directory
+    if [[ -f "$SCRIPT_DIR/templates/STANDARDS.template.md" ]]; then
+        cp "$SCRIPT_DIR/templates/STANDARDS.template.md" "$project_dir/specs/STANDARDS.md"
+    else
+        # Create inline if template not found
+        cat > "$project_dir/specs/STANDARDS.md" << 'EOF'
+# Project Quality Standards
+
+This document defines quality standards the QA Agent will verify.
+
+## Testing Standards
+
+### STD-T001: Unit Tests Pass
+All unit tests must pass. Run `npm test`.
+
+### STD-T002: Code Coverage >= 80%
+Line coverage must be at least 80%.
+
+## UI Standards
+
+### STD-U001: No Console Errors
+No console errors during normal operation.
+
+## Security Standards
+
+### STD-S001: No Hardcoded Secrets
+No API keys or passwords in source code.
+
+## Code Quality Standards
+
+### STD-Q001: No Lint Errors
+Code must pass linting. Run `npm run lint`.
+
+### STD-Q002: TypeScript Strict Mode
+No TypeScript errors. Run `npx tsc --noEmit`.
+EOF
+    fi
+
+    log_success "Quality standards created: specs/STANDARDS.md"
+}
+
+#───────────────────────────────────────────────────────────────────────────────
 # Feature Specification Template
 #───────────────────────────────────────────────────────────────────────────────
 
@@ -666,775 +668,6 @@ EOF
 
     log_success "Feature spec created: $spec_file"
     echo "$safe_name"
-}
-
-#───────────────────────────────────────────────────────────────────────────────
-# Scripts Generation
-#───────────────────────────────────────────────────────────────────────────────
-
-create_scripts() {
-    local project_dir="$1"
-    shift
-    local features=("$@")
-
-    log_info "Creating workflow scripts..."
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # setup-worktrees.sh
-    # ─────────────────────────────────────────────────────────────────────────
-    cat > "$project_dir/scripts/setup-worktrees.sh" << 'SCRIPT_EOF'
-#!/bin/bash
-set -e
-
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$PROJECT_ROOT"
-
-# Feature list - edit this array to match your features
-FEATURES=(FEATURE_LIST_PLACEHOLDER)
-
-echo "Setting up worktrees for features: ${FEATURES[*]}"
-
-# Ensure we're on main and up to date
-git checkout main 2>/dev/null || git checkout -b main
-
-# Create worktrees directory
-mkdir -p worktrees
-
-for feature in "${FEATURES[@]}"; do
-    BRANCH_NAME="feature/${feature}"
-    WORKTREE_PATH="${PROJECT_ROOT}/worktrees/feature-${feature}"
-
-    echo "─────────────────────────────────────────"
-    echo "Setting up: $feature"
-
-    # Skip if worktree already exists
-    if [[ -d "$WORKTREE_PATH" ]]; then
-        echo "  Worktree already exists, skipping..."
-        continue
-    fi
-
-    # Create branch if it doesn't exist
-    if ! git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}"; then
-        git branch "${BRANCH_NAME}"
-        echo "  Created branch: ${BRANCH_NAME}"
-    fi
-
-    # Create worktree
-    git worktree add "${WORKTREE_PATH}" "${BRANCH_NAME}"
-    echo "  Created worktree: ${WORKTREE_PATH}"
-
-    # Create .claude directory
-    mkdir -p "${WORKTREE_PATH}/.claude"
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Copy MCP configuration (.mcp.json) to worktree root
-    # This is what Claude Code reads for MCP server definitions
-    # ─────────────────────────────────────────────────────────────────────
-    if [[ -f "${PROJECT_ROOT}/.mcp.json" ]]; then
-        cp "${PROJECT_ROOT}/.mcp.json" "${WORKTREE_PATH}/.mcp.json"
-        echo "  Copied MCP server configuration"
-    fi
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Copy Claude settings to worktree
-    # ─────────────────────────────────────────────────────────────────────
-    if [[ -f "${PROJECT_ROOT}/.claude/settings.json" ]]; then
-        cp "${PROJECT_ROOT}/.claude/settings.json" "${WORKTREE_PATH}/.claude/settings.json"
-        echo "  Copied Claude settings"
-    fi
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Create worktree-specific CLAUDE.md with feature instructions
-    # ─────────────────────────────────────────────────────────────────────
-    cat > "${WORKTREE_PATH}/CLAUDE.md" << CLAUDE_EOF
-# Claude Code Instructions - Feature: ${feature}
-
-## Your Assignment
-You are implementing the **${feature}** feature in a parallelized development workflow.
-
-## MCP Servers Available
-
-### context7
-- **Command**: Use to look up library/framework documentation
-- **When to use**: Before using any external library, fetch its docs first
-- **Example queries**: "react hooks", "express middleware", "prisma schema"
-
-### browseruse
-- **Command**: Web browser for research and verification
-- **When to use**: API documentation, troubleshooting, version checking
-- **Headless mode**: Enabled by default
-
-## Required Workflow
-
-### 1. Status Logging (REQUIRED)
-Write ALL progress updates to \`.claude/status.log\`:
-\`\`\`
-\$(date -Iseconds) [STATUS] Your message here
-\`\`\`
-
-**Status Codes:**
-- \`PENDING\` - Not started
-- \`IN_PROGRESS\` - Actively working
-- \`BLOCKED\` - Cannot proceed (explain why!)
-- \`TESTING\` - Running tests
-- \`COMPLETE\` - All acceptance criteria met
-- \`FAILED\` - Unrecoverable error
-
-### 2. Implementation Logging
-Track all changes in \`.claude/implementation.log\`:
-- Files created/modified
-- Dependencies added
-- Test coverage
-
-### 3. Read Your Spec First
-**IMPORTANT**: Read \`.claude/FEATURE_SPEC.md\` before starting any work!
-
-## Feature Boundaries
-- **Your directory**: \`src/${feature}/\`
-- **Do NOT modify**: Files outside your feature directory
-- **Shared interfaces**: If you need to change shared types, log BLOCKED status
-
-## Code Standards
-- Follow existing patterns in the codebase
-- Write tests for all new functionality (target: 80% coverage)
-- No linting errors
-- Use TypeScript strict mode
-
-## Starting Checklist
-1. [ ] Read .claude/FEATURE_SPEC.md
-2. [ ] Log: IN_PROGRESS Starting implementation
-3. [ ] Review existing code in src/${feature}/
-4. [ ] Use context7 to fetch relevant library docs
-5. [ ] Implement according to spec
-6. [ ] Write tests
-7. [ ] Log: COMPLETE when done
-CLAUDE_EOF
-    echo "  Created CLAUDE.md with feature instructions"
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Initialize status log
-    # ─────────────────────────────────────────────────────────────────────
-    cat > "${WORKTREE_PATH}/.claude/status.log" << STATUS_EOF
-# Claude Status Log - Feature: ${feature}
-# Format: [TIMESTAMP] [STATUS] [MESSAGE]
-# Status: PENDING | IN_PROGRESS | BLOCKED | TESTING | COMPLETE | FAILED
-
-$(date -Iseconds) [PENDING] Worktree initialized, awaiting Claude instance
-STATUS_EOF
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Initialize implementation log
-    # ─────────────────────────────────────────────────────────────────────
-    cat > "${WORKTREE_PATH}/.claude/implementation.log" << IMPL_EOF
-# Implementation Log - Feature: ${feature}
-# Auto-updated by Claude instance
-
-## Files Modified
-(none yet)
-
-## Dependencies Added
-(none yet)
-
-## Test Coverage
-- Unit: 0%
-- Integration: 0%
-
-## Notes
-(none yet)
-IMPL_EOF
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Copy feature spec
-    # ─────────────────────────────────────────────────────────────────────
-    if [[ -f "${PROJECT_ROOT}/specs/features/${feature}.spec.md" ]]; then
-        cp "${PROJECT_ROOT}/specs/features/${feature}.spec.md" "${WORKTREE_PATH}/.claude/FEATURE_SPEC.md"
-        echo "  Copied feature spec"
-    else
-        echo "  WARNING: No feature spec found at specs/features/${feature}.spec.md"
-    fi
-
-    # ─────────────────────────────────────────────────────────────────────
-    # Copy environment template
-    # ─────────────────────────────────────────────────────────────────────
-    if [[ -f "${PROJECT_ROOT}/.env.example" ]]; then
-        cp "${PROJECT_ROOT}/.env.example" "${WORKTREE_PATH}/.env.example"
-    fi
-
-    echo "  Setup complete!"
-done
-
-echo ""
-echo "═══════════════════════════════════════════"
-echo "All worktrees created successfully!"
-echo ""
-echo "Each worktree has:"
-echo "  - .mcp.json (MCP server configuration)"
-echo "  - .claude/settings.json (Claude permissions)"
-echo "  - CLAUDE.md (Feature-specific instructions)"
-echo "  - .claude/FEATURE_SPEC.md (Implementation spec)"
-echo "  - .claude/status.log (Progress tracking)"
-echo ""
-echo "Next steps:"
-echo "  1. Review feature specs in specs/features/"
-echo "  2. Run: ./scripts/launch-claude.sh <feature-name>"
-echo "  3. Monitor: ./scripts/monitor.sh"
-echo "═══════════════════════════════════════════"
-SCRIPT_EOF
-
-    # Replace placeholder with actual features
-    local features_str=$(printf '"%s" ' "${features[@]}")
-    sed -i.bak "s/FEATURE_LIST_PLACEHOLDER/${features_str}/" "$project_dir/scripts/setup-worktrees.sh"
-    rm -f "$project_dir/scripts/setup-worktrees.sh.bak"
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # launch-claude.sh
-    # ─────────────────────────────────────────────────────────────────────────
-    cat > "$project_dir/scripts/launch-claude.sh" << 'SCRIPT_EOF'
-#!/bin/bash
-set -e
-
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-BOLD='\033[1m'
-
-print_usage() {
-    echo -e "${BOLD}Usage:${NC} $0 <feature-name> [options]"
-    echo ""
-    echo -e "${BOLD}Options:${NC}"
-    echo "  --all           Launch Claude for all features"
-    echo "  --tmux          Launch in tmux sessions"
-    echo "  --background    Launch in background"
-    echo "  --check-mcp     Verify MCP servers are working"
-    echo ""
-    echo -e "${BOLD}Examples:${NC}"
-    echo "  $0 auth                    # Launch Claude for auth feature"
-    echo "  $0 --all --tmux            # Launch all features in tmux"
-    echo "  $0 api --background        # Launch api feature in background"
-}
-
-check_mcp_servers() {
-    echo -e "${CYAN}Checking MCP server availability...${NC}"
-    echo ""
-
-    # Check context7
-    echo -n "  context7: "
-    if npx -y @upstash/context7-mcp@latest --help &>/dev/null; then
-        echo -e "${GREEN}available${NC}"
-    else
-        echo -e "${YELLOW}installing on first use${NC}"
-    fi
-
-    # Check browseruse
-    echo -n "  browseruse: "
-    if npx -y @anthropic/browseruse-mcp@latest --help &>/dev/null; then
-        echo -e "${GREEN}available${NC}"
-    else
-        echo -e "${YELLOW}installing on first use${NC}"
-    fi
-
-    echo ""
-}
-
-verify_worktree_config() {
-    local worktree_path="$1"
-    local missing=()
-
-    [[ ! -f "${worktree_path}/.mcp.json" ]] && missing+=(".mcp.json")
-    [[ ! -f "${worktree_path}/CLAUDE.md" ]] && missing+=("CLAUDE.md")
-    [[ ! -f "${worktree_path}/.claude/FEATURE_SPEC.md" ]] && missing+=(".claude/FEATURE_SPEC.md")
-    [[ ! -f "${worktree_path}/.claude/status.log" ]] && missing+=(".claude/status.log")
-
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        echo -e "${YELLOW}Warning: Missing configuration files:${NC}"
-        for file in "${missing[@]}"; do
-            echo "  - $file"
-        done
-        echo "Run ./scripts/setup-worktrees.sh to fix"
-        return 1
-    fi
-    return 0
-}
-
-launch_claude_for_feature() {
-    local feature="$1"
-    local mode="${2:-foreground}"
-    local worktree_path="${PROJECT_ROOT}/worktrees/feature-${feature}"
-
-    if [[ ! -d "$worktree_path" ]]; then
-        echo -e "${RED}Error: Worktree not found: $worktree_path${NC}"
-        echo "Run ./scripts/setup-worktrees.sh first"
-        exit 1
-    fi
-
-    echo -e "${CYAN}═══════════════════════════════════════════${NC}"
-    echo -e "${BOLD}Launching Claude for feature: ${feature}${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════${NC}"
-    echo ""
-    echo "Worktree: $worktree_path"
-    echo ""
-
-    # Verify configuration
-    if ! verify_worktree_config "$worktree_path"; then
-        echo ""
-        read -p "Continue anyway? (y/N): " confirm
-        [[ ! "$confirm" =~ ^[Yy] ]] && exit 1
-    fi
-
-    # Show MCP configuration
-    echo -e "${BOLD}MCP Servers Configured:${NC}"
-    if [[ -f "${worktree_path}/.mcp.json" ]]; then
-        echo "  - context7 (documentation lookup)"
-        echo "  - browseruse (web research)"
-    else
-        echo -e "  ${YELLOW}No .mcp.json found - MCP servers may not be available${NC}"
-    fi
-    echo ""
-
-    local status_log="${worktree_path}/.claude/status.log"
-
-    # Update status log
-    echo "$(date -Iseconds) [IN_PROGRESS] Claude instance starting" >> "$status_log"
-
-    # Build the initial prompt
-    local prompt=$(cat << PROMPT_EOF
-You are implementing the "${feature}" feature. Start by reading your instructions:
-
-1. Read CLAUDE.md for workflow instructions and MCP server usage
-2. Read .claude/FEATURE_SPEC.md for your implementation requirements
-3. Log your progress to .claude/status.log
-
-Begin by reading these files, then start implementing according to the spec.
-
-Remember to:
-- Use context7 MCP to look up library documentation
-- Use browseruse MCP for web research when needed
-- Log status updates to .claude/status.log
-- Stay within your feature boundary (src/${feature}/)
-PROMPT_EOF
-)
-
-    cd "$worktree_path"
-
-    case "$mode" in
-        tmux)
-            if ! command -v tmux &>/dev/null; then
-                echo -e "${RED}Error: tmux not installed${NC}"
-                exit 1
-            fi
-            local session_name="claude-workers"
-            local window_name="${feature}"
-
-            # Launch Claude interactively with skip permissions, then send the prompt
-            local shell_cmd="cd '$worktree_path' && claude --dangerously-skip-permissions"
-
-            # Check if session exists, create if not
-            if ! tmux has-session -t "$session_name" 2>/dev/null; then
-                echo "Creating tmux session: $session_name"
-                tmux new-session -d -s "$session_name" -n "$window_name" "zsh -l -c \"$shell_cmd\""
-            else
-                # Add new window to existing session
-                echo "Adding window to session: $session_name"
-                tmux new-window -t "$session_name" -n "$window_name" "zsh -l -c \"$shell_cmd\""
-            fi
-
-            # Wait for window to be created and Claude to start
-            local max_retries=10
-            local retry=0
-            while ! tmux list-windows -t "$session_name" 2>/dev/null | grep -q "$window_name"; do
-                ((retry++))
-                if [[ $retry -ge $max_retries ]]; then
-                    echo -e "${YELLOW}Warning: Could not verify window creation${NC}"
-                    break
-                fi
-                sleep 0.5
-            done
-
-            # Wait for Claude to fully start
-            sleep 3
-
-            # Send the prompt with retry
-            for attempt in 1 2 3; do
-                if tmux send-keys -t "$session_name:$window_name" "$prompt" 2>/dev/null; then
-                    sleep 1
-                    tmux send-keys -t "$session_name:$window_name" Enter 2>/dev/null
-                    break
-                fi
-                sleep 1
-            done
-
-            echo -e "${GREEN}Window '$window_name' added. Attach with: tmux attach -t $session_name${NC}"
-            ;;
-
-        background)
-            echo "Starting in background..."
-            cd "$worktree_path"
-            nohup claude -p "$prompt" --dangerously-skip-permissions > "${worktree_path}/.claude/claude.out" 2>&1 &
-            local pid=$!
-            echo $pid > "${worktree_path}/.claude/claude.pid"
-            echo -e "${GREEN}Started with PID: $pid${NC}"
-            echo "Output: ${worktree_path}/.claude/claude.out"
-            ;;
-
-        foreground|*)
-            echo -e "${BOLD}Starting Claude Code...${NC}"
-            echo "─────────────────────────────────────────"
-            echo ""
-            # Claude Code will automatically read:
-            # - .mcp.json for MCP server configuration
-            # - CLAUDE.md for project instructions
-            # - .claude/settings.json for permissions
-            claude -p "$prompt"
-            ;;
-    esac
-}
-
-# Parse arguments
-FEATURE=""
-MODE="foreground"
-CHECK_MCP=false
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --all)
-            FEATURE="--all"
-            shift
-            ;;
-        --tmux)
-            MODE="tmux"
-            shift
-            ;;
-        --background)
-            MODE="background"
-            shift
-            ;;
-        --check-mcp)
-            CHECK_MCP=true
-            shift
-            ;;
-        --help|-h)
-            print_usage
-            exit 0
-            ;;
-        *)
-            FEATURE="$1"
-            shift
-            ;;
-    esac
-done
-
-# Check MCP if requested
-if [[ "$CHECK_MCP" == true ]]; then
-    check_mcp_servers
-    exit 0
-fi
-
-# Validate feature argument
-if [[ -z "$FEATURE" ]]; then
-    print_usage
-    exit 1
-fi
-
-# Launch
-if [[ "$FEATURE" == "--all" ]]; then
-    echo -e "${BOLD}Launching Claude for all features...${NC}"
-    echo ""
-
-    for worktree in "${PROJECT_ROOT}"/worktrees/feature-*; do
-        if [[ -d "$worktree" ]]; then
-            feature=$(basename "$worktree" | sed 's/feature-//')
-            launch_claude_for_feature "$feature" "$MODE"
-            if [[ "$MODE" == "foreground" ]]; then
-                echo ""
-                read -p "Press Enter to continue to next feature..."
-            else
-                sleep 2  # Stagger launches
-            fi
-        fi
-    done
-
-    echo ""
-    echo -e "${GREEN}All Claude instances launched!${NC}"
-
-    if [[ "$MODE" == "tmux" ]]; then
-        echo ""
-        echo "Session: claude-workers"
-        echo "Windows:"
-        tmux list-windows -t claude-workers 2>/dev/null || echo "  (none)"
-        echo ""
-        echo -e "${BOLD}Attach with:${NC} tmux attach -t claude-workers"
-        echo -e "${BOLD}Switch windows:${NC} Ctrl+b then 0-9 or n/p for next/prev"
-    fi
-else
-    launch_claude_for_feature "$FEATURE" "$MODE"
-fi
-SCRIPT_EOF
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # monitor.sh
-    # ─────────────────────────────────────────────────────────────────────────
-    cat > "$project_dir/scripts/monitor.sh" << 'SCRIPT_EOF'
-#!/bin/bash
-
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORKTREES_DIR="${PROJECT_ROOT}/worktrees"
-REFRESH_INTERVAL=5
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-BOLD='\033[1m'
-
-get_status_color() {
-    case "$1" in
-        COMPLETE)    echo -e "${GREEN}" ;;
-        IN_PROGRESS) echo -e "${YELLOW}" ;;
-        TESTING)     echo -e "${CYAN}" ;;
-        BLOCKED)     echo -e "${RED}" ;;
-        FAILED)      echo -e "${RED}" ;;
-        PENDING)     echo -e "${BLUE}" ;;
-        *)           echo -e "${NC}" ;;
-    esac
-}
-
-print_dashboard() {
-    clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}${BOLD}           PARALLEL DEVELOPMENT WORKFLOW MONITOR                          ${NC}${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC} Updated: $(date '+%Y-%m-%d %H:%M:%S')                                               ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-
-    # Summary counts
-    local total=0 complete=0 in_progress=0 blocked=0 pending=0
-
-    printf "${BOLD}%-18s %-14s %-45s${NC}\n" "FEATURE" "STATUS" "LATEST UPDATE"
-    echo "─────────────────────────────────────────────────────────────────────────────"
-
-    for worktree in "${WORKTREES_DIR}"/feature-*; do
-        if [[ -d "$worktree" ]]; then
-            local feature=$(basename "$worktree" | sed 's/feature-//')
-            local log_file="${worktree}/.claude/status.log"
-
-            ((total++))
-
-            if [[ -f "$log_file" ]]; then
-                local last_line=$(grep -E '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' "$log_file" | tail -1)
-                local status=$(echo "$last_line" | grep -oE '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' | tr -d '[]')
-                local message=$(echo "$last_line" | sed 's/.*\] //' | cut -c1-43)
-                local color=$(get_status_color "$status")
-
-                # Count statuses
-                case "$status" in
-                    COMPLETE)    ((complete++)) ;;
-                    IN_PROGRESS) ((in_progress++)) ;;
-                    BLOCKED)     ((blocked++)) ;;
-                    PENDING)     ((pending++)) ;;
-                esac
-
-                printf "%-18s ${color}%-14s${NC} %-45s\n" "$feature" "$status" "$message"
-            else
-                printf "%-18s ${RED}%-14s${NC} %-45s\n" "$feature" "NO LOG" "Status log not found"
-            fi
-        fi
-    done
-
-    echo ""
-    echo "─────────────────────────────────────────────────────────────────────────────"
-    echo -e "${BOLD}Summary:${NC} Total: $total | ${GREEN}Complete: $complete${NC} | ${YELLOW}In Progress: $in_progress${NC} | ${RED}Blocked: $blocked${NC} | ${BLUE}Pending: $pending${NC}"
-    echo ""
-    echo -e "${BOLD}Commands:${NC}"
-    echo "  [d] <feature>  - Show detailed log for feature"
-    echo "  [i] <feature>  - Show implementation log"
-    echo "  [r]            - Refresh now"
-    echo "  [q]            - Quit"
-    echo ""
-}
-
-show_detail() {
-    local feature="$1"
-    local log_file="${WORKTREES_DIR}/feature-${feature}/.claude/status.log"
-
-    if [[ -f "$log_file" ]]; then
-        echo ""
-        echo -e "${CYAN}═══ Status Log: ${feature} ═══${NC}"
-        echo ""
-        cat "$log_file"
-        echo ""
-    else
-        echo -e "${RED}Log not found for feature: $feature${NC}"
-    fi
-}
-
-show_implementation() {
-    local feature="$1"
-    local log_file="${WORKTREES_DIR}/feature-${feature}/.claude/implementation.log"
-
-    if [[ -f "$log_file" ]]; then
-        echo ""
-        echo -e "${CYAN}═══ Implementation Log: ${feature} ═══${NC}"
-        echo ""
-        cat "$log_file"
-        echo ""
-    else
-        echo -e "${RED}Implementation log not found for feature: $feature${NC}"
-    fi
-}
-
-# Main loop
-while true; do
-    print_dashboard
-
-    read -t $REFRESH_INTERVAL -n 1 cmd || true
-
-    case "$cmd" in
-        d)
-            read -p " Feature name: " feat
-            show_detail "$feat"
-            read -p "Press Enter to continue..."
-            ;;
-        i)
-            read -p " Feature name: " feat
-            show_implementation "$feat"
-            read -p "Press Enter to continue..."
-            ;;
-        r)
-            continue
-            ;;
-        q)
-            echo "Exiting monitor..."
-            exit 0
-            ;;
-    esac
-done
-SCRIPT_EOF
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # merge-feature.sh
-    # ─────────────────────────────────────────────────────────────────────────
-    cat > "$project_dir/scripts/merge-feature.sh" << 'SCRIPT_EOF'
-#!/bin/bash
-set -e
-
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-if [[ -z "$1" ]]; then
-    echo "Usage: $0 <feature-name>"
-    echo ""
-    echo "Merges a completed feature branch into main"
-    exit 1
-fi
-
-feature="$1"
-worktree_path="${PROJECT_ROOT}/worktrees/feature-${feature}"
-status_log="${worktree_path}/.claude/status.log"
-
-# Check worktree exists
-if [[ ! -d "$worktree_path" ]]; then
-    echo "Error: Worktree not found: $worktree_path"
-    exit 1
-fi
-
-# Check status is COMPLETE
-if [[ -f "$status_log" ]]; then
-    status=$(grep -E '\[(COMPLETE|FAILED)\]' "$status_log" | tail -1 | grep -oE '\[COMPLETE\]' || true)
-    if [[ -z "$status" ]]; then
-        echo "Warning: Feature is not marked as COMPLETE"
-        read -p "Merge anyway? (y/N): " confirm
-        if [[ ! "$confirm" =~ ^[Yy] ]]; then
-            exit 1
-        fi
-    fi
-fi
-
-echo "Merging feature: $feature"
-echo ""
-
-# Go to main worktree
-cd "$PROJECT_ROOT"
-
-# Ensure we're on main
-git checkout main
-
-# Pull latest
-git pull origin main 2>/dev/null || true
-
-# Merge feature branch
-branch_name="feature/${feature}"
-echo "Merging branch: $branch_name"
-
-if git merge "$branch_name" --no-edit; then
-    echo ""
-    echo "Successfully merged $feature into main"
-
-    read -p "Remove worktree? (y/N): " remove
-    if [[ "$remove" =~ ^[Yy] ]]; then
-        git worktree remove "$worktree_path"
-        git branch -d "$branch_name"
-        echo "Worktree and branch removed"
-    fi
-else
-    echo ""
-    echo "Merge conflict detected!"
-    echo "Resolve conflicts and run: git merge --continue"
-fi
-SCRIPT_EOF
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # cleanup.sh
-    # ─────────────────────────────────────────────────────────────────────────
-    cat > "$project_dir/scripts/cleanup.sh" << 'SCRIPT_EOF'
-#!/bin/bash
-
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-echo "This will remove all worktrees and feature branches."
-read -p "Are you sure? (y/N): " confirm
-
-if [[ ! "$confirm" =~ ^[Yy] ]]; then
-    echo "Aborted"
-    exit 0
-fi
-
-cd "$PROJECT_ROOT"
-
-# Remove all worktrees
-for worktree in worktrees/feature-*; do
-    if [[ -d "$worktree" ]]; then
-        feature=$(basename "$worktree")
-        echo "Removing worktree: $feature"
-        git worktree remove "$worktree" --force 2>/dev/null || rm -rf "$worktree"
-    fi
-done
-
-# Prune worktree references
-git worktree prune
-
-# Optionally remove branches
-read -p "Also remove feature branches? (y/N): " remove_branches
-if [[ "$remove_branches" =~ ^[Yy] ]]; then
-    for branch in $(git branch | grep 'feature/'); do
-        git branch -D "$branch" 2>/dev/null || true
-    done
-fi
-
-echo "Cleanup complete"
-SCRIPT_EOF
-
-    # Make all scripts executable
-    chmod +x "$project_dir/scripts/"*.sh
-
-    log_success "All workflow scripts created"
 }
 
 #───────────────────────────────────────────────────────────────────────────────
@@ -1607,17 +840,20 @@ This project uses a parallelized development workflow with multiple Claude Code 
 ## Quick Start
 
 \`\`\`bash
-# 1. Setup worktrees for all features
-./scripts/setup-worktrees.sh
+# Run the full development loop (orchestrator + workers)
+multiclaude run .
 
-# 2. Launch Claude for a specific feature
-./scripts/launch-claude.sh <feature-name>
+# Or step by step:
+multiclaude run . --setup-only    # Setup worktrees
+multiclaude run . --workers-only  # Launch workers in tmux
+multiclaude run . --loop-only     # Run orchestrator loop
 
-# 3. Monitor all features
-./scripts/monitor.sh
+# Check status anytime
+multiclaude status .
 
-# 4. Merge completed features
-./scripts/merge-feature.sh <feature-name>
+# Manual merge and QA (usually handled by orchestrator)
+multiclaude merge .
+multiclaude qa .
 \`\`\`
 
 ## Project Structure
@@ -1625,25 +861,41 @@ This project uses a parallelized development workflow with multiple Claude Code 
 \`\`\`
 ├── specs/
 │   ├── PROJECT_SPEC.md      # Master project specification
+│   ├── STANDARDS.md         # Quality standards for QA
+│   ├── .features            # Feature list (one per line)
 │   └── features/            # Per-feature specifications
-├── scripts/
-│   ├── setup-worktrees.sh   # Create git worktrees
-│   ├── launch-claude.sh     # Launch Claude instances
-│   ├── monitor.sh           # Monitor progress dashboard
-│   ├── merge-feature.sh     # Merge completed features
-│   └── cleanup.sh           # Remove worktrees
+├── .claude/
+│   ├── settings.json        # Claude permissions
+│   ├── ALL_MERGED           # Created when features merged
+│   ├── qa-report.json       # QA test results
+│   ├── QA_COMPLETE          # Created when QA passes
+│   └── QA_NEEDS_FIXES       # Created when QA fails
 ├── src/                     # Base implementation
-└── worktrees/               # Feature worktrees (gitignored)
+├── CLAUDE.md                # Project instructions
+└── worktrees/feature-*/     # Feature worktrees (gitignored)
+    └── .claude/
+        ├── FEATURE_SPEC.md  # Feature specification
+        ├── status.log       # Worker status
+        └── inbox.md         # Commands from orchestrator
 \`\`\`
 
 ## Workflow
 
 1. **Specification**: Edit \`specs/PROJECT_SPEC.md\` with your project details
 2. **Feature Specs**: Create detailed specs in \`specs/features/\`
-3. **Setup**: Run \`./scripts/setup-worktrees.sh\`
-4. **Develop**: Launch Claude instances for each feature
-5. **Monitor**: Use \`./scripts/monitor.sh\` to track progress
-6. **Integrate**: Merge completed features with \`./scripts/merge-feature.sh\`
+3. **Run**: Execute \`multiclaude run .\` to start the full workflow
+4. **Monitor**: Watch the orchestrator or use \`multiclaude status .\`
+5. **Complete**: Orchestrator handles merge, QA, and fix cycles automatically
+
+## How It Works
+
+The \`multiclaude run\` command starts a bash orchestrator that:
+1. Launches worker Claude agents in tmux (one per feature)
+2. Monitors worker status logs for COMPLETE status
+3. When all workers complete, runs merge agent (\`claude -p\`, auto-exits)
+4. After merge, runs QA agent (\`claude -p --chrome\`, auto-exits)
+5. If QA fails, assigns FIX_TASK to workers via their inbox.md
+6. Repeats until QA passes, then marks PROJECT_COMPLETE
 
 ## MCP Servers
 
@@ -1658,11 +910,6 @@ All Claude instances have access to the following MCP servers (configured in \`.
 - **Purpose**: Web browser automation for research
 - **Usage**: Look up API docs, verify package versions, research solutions
 - **Config**: \`@anthropic/browseruse-mcp\` (headless mode enabled)
-
-### Verifying MCP Setup
-\`\`\`bash
-./scripts/launch-claude.sh --check-mcp
-\`\`\`
 
 ## Status Codes
 
@@ -1761,7 +1008,7 @@ PROMPT_EOF
     echo "─────────────────────────────────────────"
     echo ""
     echo -e "${YELLOW}Instructions:${NC}"
-    echo "  1. Claude will read CLAUDE.md automatically and begin planning"
+    echo "  1. Claude will begin planning automatically"
     echo "  2. Watch as Claude creates the project and feature specs"
     echo "  3. When Claude finishes and creates specs/.features, exit Claude"
     echo "  4. Type /exit or press Ctrl+D to exit when done"
@@ -1769,8 +1016,11 @@ PROMPT_EOF
     read -p "Press Enter to start Claude..."
     echo ""
 
-    # Launch Claude interactively - it will auto-read CLAUDE.md
-    claude --dangerously-skip-permissions || true
+    # Initial prompt to kick off planning
+    local planning_prompt="Read the CLAUDE.md file for your planning instructions, then create all the specification files as described. Start now."
+
+    # Launch Claude interactively with the initial prompt
+    claude "$planning_prompt" --dangerously-skip-permissions || true
 
     echo ""
     echo "─────────────────────────────────────────"
@@ -1883,6 +1133,38 @@ extract_features_from_plan() {
 #───────────────────────────────────────────────────────────────────────────────
 
 main() {
+    # Parse command line arguments
+    local arg_name=""
+    local arg_dir=""
+    local arg_desc=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --name)
+                arg_name="$2"
+                shift 2
+                ;;
+            --dir)
+                arg_dir="$2"
+                shift 2
+                ;;
+            --description)
+                arg_desc="$2"
+                shift 2
+                ;;
+            -*)
+                shift
+                ;;
+            *)
+                # First positional arg is name
+                if [[ -z "$arg_name" ]]; then
+                    arg_name="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
     print_banner
 
     echo -e "${BOLD}Welcome to the Parallel Development Workflow Bootstrapper!${NC}"
@@ -1894,15 +1176,31 @@ main() {
     echo "  4. Set up worktrees and launch parallel Claude instances"
     echo ""
 
-    # Get project details
-    local project_name=$(prompt_input "Project name" "my-project")
-    local project_dir=$(prompt_input "Project directory" "$(pwd)/$project_name")
+    # Get project details (use args if provided, otherwise prompt)
+    local project_name
+    if [[ -n "$arg_name" ]]; then
+        project_name="$arg_name"
+    else
+        project_name=$(prompt_input "Project name" "my-project")
+    fi
+
+    local project_dir
+    if [[ -n "$arg_dir" ]]; then
+        project_dir="$arg_dir"
+    else
+        project_dir=$(prompt_input "Project directory" "$(pwd)/$project_name")
+    fi
 
     echo ""
-    echo -e "${BOLD}Describe your project:${NC}"
-    echo "(Be detailed - Claude will use this to plan features and architecture)"
-    echo ""
-    local project_description=$(prompt_input "Project description" "")
+    local project_description
+    if [[ -n "$arg_desc" ]]; then
+        project_description="$arg_desc"
+    else
+        echo -e "${BOLD}Describe your project:${NC}"
+        echo "(Be detailed - Claude will use this to plan features and architecture)"
+        echo ""
+        project_description=$(prompt_input "Project description" "")
+    fi
 
     if [[ -z "$project_description" ]]; then
         log_error "Project description is required for Claude to plan the project"
@@ -1960,16 +1258,11 @@ main() {
         exit 0
     fi
 
-    # Phase 4: Create scripts and source structure
-    log_info "Phase 4: Creating workflow scripts and source structure..."
-    create_scripts "$project_dir" "${features[@]}"
+    # Phase 4: Create source structure (no scripts - run via multiclaude CLI)
+    log_info "Phase 4: Creating source structure..."
     create_base_source "$project_dir" "${features[@]}"
+    create_standards "$project_dir"
     create_readme "$project_dir" "$project_name"
-
-    # Run MCP setup to pre-cache packages
-    log_info "Pre-caching MCP server packages..."
-    cd "$project_dir"
-    ./scripts/setup-mcp.sh 2>/dev/null || log_warn "MCP setup had warnings (non-fatal)"
 
     # Initial commit
     cd "$project_dir"
@@ -1985,7 +1278,7 @@ $(for feature in "${features[@]}"; do echo "- ${feature}"; done)
 Includes:
 - Project specification (specs/PROJECT_SPEC.md)
 - Feature specifications (specs/features/*.spec.md)
-- Workflow scripts for parallel development
+- Quality standards (specs/STANDARDS.md)
 - Base source structure with stubs
 - MCP configuration for context7 and browseruse
 
@@ -2006,27 +1299,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
     echo "  - browseruse (web research & automation)"
     echo ""
 
-    # Ask if user wants to continue with worktree setup
+    # Ask if user wants to start the development loop
     echo ""
-    if prompt_confirm "Set up worktrees and launch Claude workers now?" "y"; then
+    if prompt_confirm "Start the full development loop now?" "y"; then
         echo ""
-        log_info "Phase 5: Setting up worktrees..."
-        ./scripts/setup-worktrees.sh
-
-        echo ""
-        if prompt_confirm "Launch all Claude workers in tmux?" "y"; then
-            log_info "Phase 6: Launching Claude workers..."
-            ./scripts/launch-claude.sh --all --tmux
-
-            echo ""
-            echo -e "${GREEN}All Claude workers launched!${NC}"
-            echo ""
-            echo -e "${BOLD}To monitor progress:${NC}"
-            echo "  ${CYAN}./scripts/monitor.sh${NC}"
-            echo ""
-            echo -e "${BOLD}To attach to workers:${NC}"
-            echo "  ${CYAN}tmux attach -t claude-workers${NC}"
-        fi
+        log_info "Phase 5: Starting development loop..."
+        multiclaude run "$project_dir"
     else
         echo ""
         echo -e "${BOLD}Next Steps:${NC}"
@@ -2037,14 +1315,16 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
             echo "     ${CYAN}cat specs/features/${feature}.spec.md${NC}"
         done
         echo ""
-        echo "  2. Set up worktrees:"
-        echo "     ${CYAN}./scripts/setup-worktrees.sh${NC}"
+        echo "  2. Start the full development loop:"
+        echo "     ${CYAN}multiclaude run $project_dir${NC}"
         echo ""
-        echo "  3. Launch Claude workers:"
-        echo "     ${CYAN}./scripts/launch-claude.sh --all --tmux${NC}"
+        echo "  3. Or run step by step:"
+        echo "     ${CYAN}multiclaude run $project_dir --setup-only${NC}    # Setup worktrees"
+        echo "     ${CYAN}multiclaude run $project_dir --workers-only${NC}  # Launch workers"
+        echo "     ${CYAN}multiclaude run $project_dir --loop-only${NC}     # Run orchestrator"
         echo ""
-        echo "  4. Monitor progress:"
-        echo "     ${CYAN}./scripts/monitor.sh${NC}"
+        echo "  4. Check status anytime:"
+        echo "     ${CYAN}multiclaude status $project_dir${NC}"
     fi
 
     echo ""

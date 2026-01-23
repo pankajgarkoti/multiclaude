@@ -1,61 +1,67 @@
 # Parallel Development Workflow
 
-A system for parallelizing software development using multiple Claude Code instances, each working on separate features in isolated git worktrees.
+A system for parallelizing software development using multiple Claude Code agents, orchestrated by a supervisor daemon. Agents communicate via file-based message passing for coordination, merging, and QA.
 
 ## Overview
 
 This workflow enables you to:
 
 1. **Describe a project** - Provide a project name and detailed description
-2. **AI-powered planning** - Claude Code analyzes your description and creates:
-   - Detailed project specification
-   - Feature breakdown with clear boundaries
-   - Individual feature specs for parallel development
-3. **Parallel implementation** - Multiple Claude instances work simultaneously, each in its own git worktree
-4. **Progress monitoring** - Track all workers from a central dashboard
-5. **Easy integration** - Merge completed features back to main
+2. **AI-powered planning** - Claude Code analyzes and creates architecture + feature specs
+3. **Parallel implementation** - Multiple Claude workers in isolated git worktrees
+4. **Supervisor coordination** - A supervisor agent monitors, merges, and runs QA
+5. **Continuous loop** - Automatically fix issues until all quality standards pass
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         YOUR PROJECT IDEA                           │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    CLAUDE PLANNING SESSION                          │
-│  • Analyzes requirements                                            │
-│  • Designs architecture                                             │
-│  • Identifies 3-7 parallel features                                 │
-│  • Creates detailed specs for each                                  │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      GIT WORKTREES CREATED                          │
-│                                                                     │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐              │
-│  │  auth    │ │   api    │ │ database │ │    ui    │  ...         │
-│  │ worktree │ │ worktree │ │ worktree │ │ worktree │              │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘              │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                   PARALLEL CLAUDE INSTANCES                         │
-│                                                                     │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐              │
-│  │ Claude 1 │ │ Claude 2 │ │ Claude 3 │ │ Claude 4 │  ...         │
-│  │ (auth)   │ │  (api)   │ │(database)│ │   (ui)   │              │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘              │
-│       │            │            │            │                      │
-│       ▼            ▼            ▼            ▼                      │
-│  [COMPLETE]   [TESTING]   [IN_PROGRESS] [COMPLETE]                 │
-└─────────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      MERGE TO MAIN                                  │
-└─────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         SUPERVISOR AGENT (daemon)                           │
+│                                                                             │
+│   Responsibilities:                                                         │
+│   - Monitor worker status (reads status.log files)                          │
+│   - Merge completed features to main                                        │
+│   - Back-merge main into worktrees                                          │
+│   - Launch QA agent                                                         │
+│   - Parse QA report and assign fix tasks                                    │
+│   - Send commands to workers via message passing                            │
+│   - Terminate all agents on success                                         │
+└────────────────────────────────────────────────────────────────────────────┘
+                    │                    │                    │
+         ┌──────────┴──────────┐        │          ┌─────────┴──────────┐
+         │  MESSAGE PASSING    │        │          │   MESSAGE PASSING  │
+         │  (file-based)       │        │          │   (file-based)     │
+         ▼                     │        ▼          │                    ▼
+┌─────────────────┐            │  ┌─────────────────┐           ┌─────────────────┐
+│  WORKER AGENT   │            │  │  WORKER AGENT   │           │   QA AGENT      │
+│    (auth)       │            │  │    (api)        │           │   (--chrome)    │
+│                 │            │  │                 │           │                 │
+│  Reads:         │            │  │  Reads:         │           │  Reads:         │
+│  - .claude/inbox│            │  │  - .claude/inbox│           │  - STANDARDS.md │
+│  Writes:        │            │  │  Writes:        │           │  Writes:        │
+│  - status.log   │            │  │  - status.log   │           │  - qa-report.json│
+└─────────────────┘            │  └─────────────────┘           └─────────────────┘
+         │                     │           │                             │
+         └─────────────────────┴───────────┴─────────────────────────────┘
+                                    │
+                                    ▼
+                            ┌──────────────────┐
+                            │     GIT REPO     │
+                            │   main branch    │
+                            │   worktrees/     │
+                            └──────────────────┘
+```
+
+## Installation
+
+```bash
+# Clone the repo
+git clone <repo-url> workflow
+cd workflow
+
+# Install the CLI
+./install.sh
+
+# Or manually add to PATH
+export PATH="$PATH:$(pwd)"
 ```
 
 ## Prerequisites
@@ -67,6 +73,46 @@ This workflow enables you to:
 
 ## Quick Start
 
+### Using the `multiclaude` CLI (Recommended)
+
+```bash
+# Create a new project
+multiclaude new my-app
+
+# Run the full development loop
+cd my-app
+multiclaude run
+
+# Check status
+multiclaude status
+
+# Add a feature later
+multiclaude add notifications --description "Push notifications"
+
+# Run QA
+multiclaude qa
+```
+
+### Using Individual Scripts
+
+### Option 1: Full Continuous Loop (Recommended)
+
+```bash
+# Bootstrap a project, then run the full loop
+./bootstrap.sh
+cd my-project
+../loop.sh .
+```
+
+The loop will:
+1. Setup worktrees
+2. Launch all workers in tmux
+3. Start supervisor daemon
+4. Supervisor monitors, merges, runs QA
+5. Loop continues until all standards pass
+
+### Option 2: Step-by-Step
+
 ### 1. Bootstrap a New Project
 
 ```bash
@@ -74,6 +120,7 @@ This workflow enables you to:
 ```
 
 You'll be prompted for:
+
 - **Project name** - e.g., `task-manager`
 - **Project directory** - Where to create the project
 - **Project description** - Detailed description (Claude uses this to plan)
@@ -81,6 +128,7 @@ You'll be prompted for:
 ### 2. Claude Plans the Project
 
 Claude Code launches and:
+
 - Creates `specs/PROJECT_SPEC.md` with full architecture
 - Identifies features for parallel development
 - Creates `specs/features/<feature>.spec.md` for each feature
@@ -89,6 +137,7 @@ Claude Code launches and:
 ### 3. Worktrees Are Created
 
 The script automatically creates:
+
 - Git branches for each feature
 - Isolated worktrees in `worktrees/feature-<name>/`
 - Configuration files for each Claude instance
@@ -103,7 +152,22 @@ The script automatically creates:
 ./scripts/launch-claude.sh auth
 ```
 
-### 5. Monitor Progress
+### 5. Launch Supervisor
+
+The Supervisor Claude monitors all workers, detects issues, and reports progress:
+
+```bash
+./scripts/supervisor.sh
+```
+
+The supervisor will:
+
+- Continuously monitor worker status
+- Detect BLOCKED or FAILED workers
+- Report progress to you
+- Coordinate until all features complete
+
+### 6. Or Monitor Manually
 
 ```bash
 ./scripts/monitor.sh
@@ -167,16 +231,44 @@ my-project/
     └── ...
 ```
 
+## Quality Standards
+
+The QA agent verifies standards defined in `specs/STANDARDS.md`. Default standards include:
+
+| Category | ID | Standard |
+|----------|-----|----------|
+| Testing | STD-T001 | Unit tests pass |
+| Testing | STD-T002 | Code coverage >= 80% |
+| UI | STD-U001 | No console errors |
+| Security | STD-S001 | No hardcoded secrets |
+| Quality | STD-Q001 | No lint errors |
+| Quality | STD-Q002 | TypeScript strict mode passes |
+
+Customize `specs/STANDARDS.md` for your project's requirements.
+
+## Templates
+
+Templates in `workflow/templates/` define agent behavior:
+
+| Template | Purpose |
+|----------|---------|
+| `SUPERVISOR.md` | Supervisor agent instructions |
+| `WORKER.md` | Worker agent instructions with inbox protocol |
+| `QA_INSTRUCTIONS.md` | QA agent testing procedures |
+| `STANDARDS.template.md` | Default quality standards |
+
 ## MCP Servers
 
 Each Claude instance has access to:
 
 ### context7
+
 - **Purpose**: Library documentation lookup
 - **Usage**: Fetch docs for React, Express, Prisma, etc.
 - **Package**: `@upstash/context7-mcp`
 
 ### browseruse
+
 - **Purpose**: Web browser automation
 - **Usage**: Research APIs, verify documentation
 - **Package**: `@anthropic/browseruse-mcp`
@@ -185,16 +277,79 @@ Each Claude instance has access to:
 
 Each Claude instance logs progress to `.claude/status.log`:
 
-| Status | Meaning |
-|--------|---------|
-| `PENDING` | Worktree created, awaiting Claude |
-| `IN_PROGRESS` | Actively implementing |
-| `BLOCKED` | Cannot proceed (dependency/question) |
-| `TESTING` | Running tests |
-| `COMPLETE` | All acceptance criteria met |
-| `FAILED` | Unrecoverable error |
+| Status        | Meaning                              |
+| ------------- | ------------------------------------ |
+| `PENDING`     | Worktree created, awaiting Claude    |
+| `IN_PROGRESS` | Actively implementing                |
+| `BLOCKED`     | Cannot proceed (dependency/question) |
+| `TESTING`     | Running tests                        |
+| `COMPLETE`    | All acceptance criteria met          |
+| `FAILED`      | Unrecoverable error                  |
+
+## Message Passing Protocol
+
+Agents communicate via files in each worktree's `.claude/` directory.
+
+### Worker → Supervisor
+
+Workers write to `worktree/.claude/status.log`:
+
+```
+2026-01-23T10:00:00Z [IN_PROGRESS] Implementing user authentication
+2026-01-23T10:30:00Z [TESTING] Running unit tests
+2026-01-23T10:35:00Z [COMPLETE] All acceptance criteria met
+```
+
+### Supervisor → Worker
+
+Supervisor writes to `worktree/.claude/inbox.md`:
+
+```markdown
+# Command: BACK_MERGE
+Timestamp: 2026-01-23T10:00:00Z
+Message: Main has been updated with new code.
+Action: Changes merged automatically. Continue work.
+
+---
+
+# Command: FIX_TASK
+Timestamp: 2026-01-23T11:00:00Z
+Failed Standards:
+- STD-U001: Console error on page load
+Action: Fix the issue, commit, update status to COMPLETE.
+```
+
+### QA Agent → Supervisor
+
+QA writes `.claude/qa-report.json` and creates either:
+- `.claude/QA_COMPLETE` - All standards pass
+- `.claude/QA_NEEDS_FIXES` - Failures exist
 
 ## Scripts Reference
+
+### loop.sh
+
+**Entry point for the continuous development loop.** Orchestrates the entire workflow.
+
+```bash
+# Full workflow
+./loop.sh ./my-project
+
+# Setup only (create worktrees, don't launch agents)
+./loop.sh ./my-project --setup-only
+
+# Launch workers only (assumes worktrees exist)
+./loop.sh ./my-project --workers-only
+
+# Launch supervisor only (assumes workers running)
+./loop.sh ./my-project --supervisor
+
+# Run QA only
+./loop.sh ./my-project --qa
+
+# Check status
+./loop.sh ./my-project --status
+```
 
 ### bootstrap.sh
 
@@ -230,15 +385,67 @@ Launches Claude Code instances.
 ./scripts/launch-claude.sh --check-mcp
 ```
 
+### supervisor.sh
+
+Launches the Supervisor Claude daemon that coordinates all workers.
+
+```bash
+./supervisor.sh ./my-project
+# Or from within project:
+../workflow/supervisor.sh .
+```
+
+The Supervisor:
+
+- Monitors all worker status continuously
+- Merges completed features to main
+- Back-merges main into active worktrees
+- Launches QA when all features complete
+- Parses QA failures and assigns FIX_TASK commands
+- Terminates when PROJECT_COMPLETE
+
+### qa.sh
+
+Launches the QA Agent with browser access to verify quality standards.
+
+```bash
+./qa.sh ./my-project
+```
+
+The QA Agent:
+
+- Reads `specs/STANDARDS.md` for quality requirements
+- Starts the application
+- Runs tests and verifies each standard
+- Writes `qa-report.json` with detailed results
+- Creates `QA_COMPLETE` or `QA_NEEDS_FIXES`
+
+### feature.sh
+
+Adds a new feature to an existing project.
+
+```bash
+./feature.sh ./my-project notifications
+./feature.sh ./my-project payments --description "Stripe payment processing"
+./feature.sh ./my-project cache --deps "api,database" --launch
+```
+
+Options:
+- `--description "desc"` - Feature description
+- `--deps "feat1,feat2"` - Dependent features
+- `--no-worktree` - Skip worktree creation
+- `--launch` - Launch Claude worker after setup
+
 ### monitor.sh
 
-Interactive dashboard for monitoring all workers.
+Interactive dashboard for monitoring all workers (manual alternative to supervisor).
 
 ```bash
 ./scripts/monitor.sh
 ```
 
 **Commands in monitor:**
+
 - `d <feature>` - Show detailed status log
 - `i <feature>` - Show implementation log
 - `r` - Refresh now
@@ -262,11 +469,14 @@ Removes all worktrees and optionally feature branches.
 
 ## tmux Commands
 
-When workers are running in tmux:
+When workers are running in tmux, the session is named `claude-<project-name>`:
 
 ```bash
-# Attach to the session
-tmux attach -t claude-workers
+# Attach to the session (replace <project-name> with your project)
+tmux attach -t claude-myproject
+
+# List all tmux sessions
+tmux list-sessions
 
 # Inside tmux:
 # Ctrl+b n     - Next window
@@ -295,6 +505,7 @@ and have a REST API for integrations."
 ### Feature Boundaries
 
 Claude will design features with:
+
 - **Clear ownership** - Each feature owns specific files/directories
 - **Minimal coupling** - Features communicate through defined interfaces
 - **Independent testability** - Each feature can be tested in isolation
@@ -338,11 +549,11 @@ The workers read `CLAUDE.md` automatically. If the initial prompt fails to send,
 # List sessions
 tmux list-sessions
 
-# Kill a stuck session (careful!)
-tmux kill-session -t claude-workers
+# Kill a stuck session (replace <project-name> with your project)
+tmux kill-session -t claude-myproject
 
 # List windows in session
-tmux list-windows -t claude-workers
+tmux list-windows -t claude-myproject
 ```
 
 ### Worktree Conflicts
