@@ -11,6 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/pankajgarkoti/multiclaude/main/remo
 ```
 
 This will:
+
 - Clone multiclaude to `~/.multiclaude`
 - Install missing dependencies (git, tmux, claude CLI)
 - Add `multiclaude` command to your PATH
@@ -32,11 +33,13 @@ cd ~/.multiclaude
 ### Requirements
 
 The installer will attempt to install these automatically:
+
 - **git** - version control
 - **tmux** - terminal multiplexer for agent windows
 - **claude** - Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
 
 Optional:
+
 - **jq** - JSON processing (for some status commands)
 
 ## Usage
@@ -48,6 +51,7 @@ multiclaude new my-app
 ```
 
 This creates the project and launches a tmux session with:
+
 - **Window 0:** Monitor (control center + mailbox router)
 - **Window 1:** Supervisor (coordinates everything)
 - **Window 2:** QA (runs tests when signaled)
@@ -107,8 +111,9 @@ multiclaude new my-app
 ### Research Output
 
 Research findings are saved to `.claude/research-findings.md` and inform:
+
 - Project specifications (specs/PROJECT_SPEC.md)
-- Feature specifications (specs/features/*.spec.md)
+- Feature specifications (specs/features/\*.spec.md)
 - Quality standards (specs/STANDARDS.md)
 
 ## Monitor Dashboard
@@ -123,21 +128,22 @@ dashboard 10  # Custom refresh interval (10 seconds)
 ```
 
 The dashboard shows:
+
 - **Worker Status**: Feature name, status (PENDING/IN_PROGRESS/COMPLETE/etc), and message
 - **Project Status**: Overall progress (X/Y features complete, merged, QA status)
 - **Recent Messages**: Last 3 messages from the mailbox
 
 ### Monitor Commands
 
-| Command | Description |
-|---------|-------------|
-| `s`, `status` | Show current status |
-| `d`, `dashboard` | Live auto-refreshing dashboard |
-| `w`, `watch` | Watch status with system watch command |
-| `l`, `logs` | Tail all worker status logs |
-| `m`, `messages` | Tail the central mailbox |
-| `h`, `help` | Show help |
-| `q`, `quit` | Exit monitor (agents keep running) |
+| Command          | Description                            |
+| ---------------- | -------------------------------------- |
+| `s`, `status`    | Show current status                    |
+| `d`, `dashboard` | Live auto-refreshing dashboard         |
+| `w`, `watch`     | Watch status with system watch command |
+| `l`, `logs`      | Tail all worker status logs            |
+| `m`, `messages`  | Tail the central mailbox               |
+| `h`, `help`      | Show help                              |
+| `q`, `quit`      | Exit monitor (agents keep running)     |
 
 ## tmux Navigation
 
@@ -227,12 +233,12 @@ The monitor script watches the mailbox and routes messages to the appropriate ag
 
 ### Message Types
 
-| Message | From | To | Purpose |
-|---------|------|-----|---------|
-| `RUN_QA` | supervisor | qa | Signal QA to start testing |
-| `QA_RESULT: PASS/FAIL` | qa | supervisor | Report test results |
-| `FIX_TASK` | supervisor | worker | Assign fix work after QA failure |
-| `WORKER_COMPLETE` | worker | supervisor | Worker finished (optional) |
+| Message                | From       | To         | Purpose                          |
+| ---------------------- | ---------- | ---------- | -------------------------------- |
+| `RUN_QA`               | supervisor | qa         | Signal QA to start testing       |
+| `QA_RESULT: PASS/FAIL` | qa         | supervisor | Report test results              |
+| `FIX_TASK`             | supervisor | worker     | Assign fix work after QA failure |
+| `WORKER_COMPLETE`      | worker     | supervisor | Worker finished (optional)       |
 
 ### Status Codes (Worker -> Supervisor)
 

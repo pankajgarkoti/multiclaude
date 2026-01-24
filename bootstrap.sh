@@ -1,11 +1,6 @@
 #!/bin/bash
 set -e
 
-#═══════════════════════════════════════════════════════════════════════════════
-# PARALLEL DEVELOPMENT WORKFLOW BOOTSTRAPPER
-# Creates a complete project structure for parallelized Claude Code development
-#═══════════════════════════════════════════════════════════════════════════════
-
 VERSION="1.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -15,58 +10,66 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 BOLD='\033[1m'
 
-#───────────────────────────────────────────────────────────────────────────────
-# Helper Functions
-#───────────────────────────────────────────────────────────────────────────────
-
-# Run claude in tmux and auto-exit when a completion identifier is detected
-# Usage: run_claude_until_complete "prompt" "COMPLETION_IDENTIFIER"
 run_claude_until_complete() {
     local prompt="$1"
     local completion_id="$2"
-    local session_name="claude-bootstrap-$$"
+    local output_file
+    output_file=$(mktemp)
 
-    # Create a detached tmux session running claude
-    tmux new-session -d -s "$session_name" \
-        "claude '$prompt' --dangerously-skip-permissions; echo 'SESSION_ENDED'; sleep 2"
+    # Create a named pipe for communication
+    local pipe_dir
+    pipe_dir=$(mktemp -d)
+    local pipe="$pipe_dir/claude_pipe"
+    mkfifo "$pipe"
 
-    # Attach to the session (user can interact)
-    # But also monitor in background for completion identifier
-    (
-        while tmux has-session -t "$session_name" 2>/dev/null; do
-            # Capture pane content and check for identifier
-            if tmux capture-pane -t "$session_name" -p 2>/dev/null | grep -q "$completion_id"; then
-                sleep 2  # Let Claude finish any final output
-                # Send /exit + Enter
-                tmux send-keys -t "$session_name" "/exit" Enter
-                sleep 1
-                break
-            fi
+    # Start claude in background, tee output to file and terminal
+    (claude "$prompt" --dangerously-skip-permissions < "$pipe" 2>&1 | tee "$output_file") &
+    local claude_pid=$!
+
+    # Open pipe for writing (keep it open)
+    exec 3>"$pipe"
+
+    # Monitor output file for completion identifier
+    local found=false
+    local check_count=0
+    local max_checks=3600  # 1 hour max (checking every second)
+
+    while kill -0 "$claude_pid" 2>/dev/null; do
+        if grep -q "$completion_id" "$output_file" 2>/dev/null; then
+            found=true
+            sleep 2
+            echo "/exit" >&3
             sleep 1
-        done
-    ) &
-    local monitor_pid=$!
+            break
+        fi
 
-    # Attach to session (blocking - user sees Claude)
-    tmux attach -t "$session_name" 2>/dev/null || true
+        ((check_count++))
+        [[ $check_count -ge $max_checks ]] && break
+
+        sleep 1
+    done
+
+    # Close pipe and wait for claude to finish
+    exec 3>&-
+    wait "$claude_pid" 2>/dev/null || true
 
     # Cleanup
-    kill "$monitor_pid" 2>/dev/null || true
-    tmux kill-session -t "$session_name" 2>/dev/null || true
+    rm -f "$output_file" "$pipe"
+    rmdir "$pipe_dir" 2>/dev/null || true
+
+    if [[ "$found" == true ]]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 print_banner() {
-    echo -e "${CYAN}"
-    cat << "EOF"
-    ╔═══════════════════════════════════════════════════════════════════╗
-    ║     PARALLEL DEVELOPMENT WORKFLOW BOOTSTRAPPER                    ║
-    ║     Multi-Claude Feature Development System                       ║
-    ╚═══════════════════════════════════════════════════════════════════╝
-EOF
-    echo -e "${NC}"
+    echo -e "${CYAN}${BOLD}Parallel Development Workflow${NC}"
+    echo ""
 }
 
 log_info() {
@@ -109,30 +112,18 @@ prompt_confirm() {
     [[ "$result" =~ ^[Yy] ]]
 }
 
-#───────────────────────────────────────────────────────────────────────────────
-# Project Structure Creation
-#───────────────────────────────────────────────────────────────────────────────
-
 create_directory_structure() {
     local project_dir="$1"
-
-    log_info "Creating directory structure..."
-
     mkdir -p "$project_dir"/{.claude,specs/features,src,docs}
-
-    log_success "Directory structure created"
 }
 
 init_git_repo() {
     local project_dir="$1"
-
-    log_info "Initializing git repository..."
-
     cd "$project_dir"
 
     if [[ ! -d .git ]]; then
-        git init
-        git checkout -b main
+        git init -q
+        git checkout -q -b main
     fi
 
     # Create .gitignore
@@ -175,23 +166,11 @@ Thumbs.db
 .claude/cache/
 .claude/tmp/
 EOF
-
-    log_success "Git repository initialized"
 }
-
-#───────────────────────────────────────────────────────────────────────────────
-# MCP Configuration & Tool Setup
-#───────────────────────────────────────────────────────────────────────────────
 
 create_mcp_config() {
     local project_dir="$1"
 
-    log_info "Creating MCP and tool configurations..."
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Create Claude Code settings.json (project-level)
-    # This is the main configuration file Claude Code reads
-    # ─────────────────────────────────────────────────────────────────────────
     cat > "$project_dir/.claude/settings.json" << 'EOF'
 {
   "permissions": {
@@ -217,10 +196,6 @@ create_mcp_config() {
 }
 EOF
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Create .mcp.json for MCP server configuration
-    # Claude Code reads this for MCP server definitions
-    # ─────────────────────────────────────────────────────────────────────────
     cat > "$project_dir/.mcp.json" << 'EOF'
 {
   "mcpServers": {
@@ -242,9 +217,6 @@ EOF
 }
 EOF
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Create CLAUDE.md - instructions file Claude Code reads automatically
-    # ─────────────────────────────────────────────────────────────────────────
     cat > "$project_dir/CLAUDE.md" << 'EOF'
 # Claude Code Project Instructions
 
@@ -287,9 +259,6 @@ When working on a feature in this project:
 - Update status log at each milestone
 EOF
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Create environment template
-    # ─────────────────────────────────────────────────────────────────────────
     cat > "$project_dir/.env.example" << 'EOF'
 # MCP Server Configuration
 # Copy this file to .env and fill in any required values
@@ -304,20 +273,12 @@ BROWSERUSE_HEADLESS=true
 # Project Settings
 NODE_ENV=development
 EOF
-
-    log_success "MCP and tool configurations created"
 }
-
-#───────────────────────────────────────────────────────────────────────────────
-# Project Specification Template
-#───────────────────────────────────────────────────────────────────────────────
 
 create_project_spec() {
     local project_dir="$1"
     local project_name="$2"
     local project_description="$3"
-
-    log_info "Creating project specification template..."
 
     cat > "$project_dir/specs/PROJECT_SPEC.md" << EOF
 # Project Specification: ${project_name}
@@ -487,23 +448,10 @@ in specs/features/. These define the boundaries for parallel development.
 *Created: $(date +%Y-%m-%d)*
 *Last Updated: $(date +%Y-%m-%d)*
 EOF
-
-    log_success "Project specification template created"
 }
-
-#───────────────────────────────────────────────────────────────────────────────
-# Quality Standards Template
-#───────────────────────────────────────────────────────────────────────────────
 
 create_standards() {
     local project_dir="$1"
-
-    log_info "Generating project-specific quality standards..."
-    echo ""
-    echo -e "${CYAN}Claude will generate standards based on:${NC}"
-    echo "  - Research findings from .claude/research-findings.md"
-    echo "  - Project specification from specs/PROJECT_SPEC.md"
-    echo ""
 
     cd "$project_dir"
 
@@ -614,31 +562,19 @@ Standards are derived from research into similar products and project requiremen
 
 Start by reading the research findings and project spec, then generate comprehensive standards.
 
-## IMPORTANT: Completion Signal
-When you have finished generating standards, you MUST say:
+## IMPORTANT: Exiting This Phase
+When you have finished generating standards, remind the user:
 
-**STANDARDS_COMPLETE**
-
-This signals the system to automatically proceed to the next phase.
+**"Standards generation complete! Type /exit to proceed to the development phase."**
 STANDARDS_EOF
 
-    echo -e "${BOLD}Starting Claude Code standards generation...${NC}"
-    echo "─────────────────────────────────────────"
-    echo ""
-    echo -e "${CYAN}Claude will auto-exit when STANDARDS_COMPLETE is detected.${NC}"
+    echo -e "${CYAN}Standards generation${NC} - type /exit when done"
     echo ""
 
     local gen_prompt="Read CLAUDE.md for standards generation instructions. Read the research findings and project spec, then create specs/STANDARDS.md with project-specific quality standards. Say STANDARDS_COMPLETE when done."
+    claude "$gen_prompt" --dangerously-skip-permissions || true
 
-    run_claude_until_complete "$gen_prompt" "STANDARDS_COMPLETE"
-
-    echo ""
-    echo "─────────────────────────────────────────"
-
-    if [[ -f "$project_dir/specs/STANDARDS.md" ]]; then
-        log_success "Generated project-specific standards: specs/STANDARDS.md"
-    else
-        log_warn "Standards generation failed, creating fallback template"
+    if [[ ! -f "$project_dir/specs/STANDARDS.md" ]]; then
         # Fallback to template if generation fails
         if [[ -f "$SCRIPT_DIR/templates/STANDARDS.template.md" ]]; then
             cp "$SCRIPT_DIR/templates/STANDARDS.template.md" "$project_dir/specs/STANDARDS.md"
@@ -718,13 +654,8 @@ As a developer, code should be type-safe.
 - [ ] Strict mode enabled
 EOF
         fi
-        log_success "Fallback standards created: specs/STANDARDS.md"
     fi
 }
-
-#───────────────────────────────────────────────────────────────────────────────
-# Feature Specification Template
-#───────────────────────────────────────────────────────────────────────────────
 
 create_feature_spec() {
     local project_dir="$1"
@@ -734,8 +665,6 @@ create_feature_spec() {
 
     local safe_name=$(echo "$feature_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
     local spec_file="$project_dir/specs/features/${safe_name}.spec.md"
-
-    log_info "Creating feature spec: $feature_name..."
 
     cat > "$spec_file" << EOF
 # Feature Specification: ${feature_name}
@@ -882,23 +811,14 @@ When implementing this feature:
 
 *Feature Spec Version: 1.0*
 EOF
-
-    log_success "Feature spec created: $spec_file"
     echo "$safe_name"
 }
-
-#───────────────────────────────────────────────────────────────────────────────
-# Base Source Structure
-#───────────────────────────────────────────────────────────────────────────────
 
 create_base_source() {
     local project_dir="$1"
     shift
     local features=("$@")
 
-    log_info "Creating base source structure..."
-
-    # Create shared types
     mkdir -p "$project_dir/src/shared"
 
     cat > "$project_dir/src/shared/types.ts" << 'EOF'
@@ -1037,13 +957,7 @@ EOF
 export * from './shared';
 $(for feature in "${features[@]}"; do echo "export * from './${feature}';"; done)
 EOF
-
-    log_success "Base source structure created"
 }
-
-#───────────────────────────────────────────────────────────────────────────────
-# Create README
-#───────────────────────────────────────────────────────────────────────────────
 
 create_readme() {
     local project_dir="$1"
@@ -1139,27 +1053,12 @@ All Claude instances have access to the following MCP servers (configured in \`.
 | COMPLETE | Ready for merge |
 | FAILED | Needs intervention |
 EOF
-
-    log_success "README created"
 }
-
-#───────────────────────────────────────────────────────────────────────────────
-# Research Phase (Runs First - Informs All Subsequent Generation)
-#───────────────────────────────────────────────────────────────────────────────
 
 run_research_phase() {
     local project_dir="$1"
     local project_name="$2"
     local project_description="$3"
-
-    log_info "Starting research phase..."
-    echo ""
-    echo -e "${CYAN}Claude will research similar products and gather insights:${NC}"
-    echo "  - Browse any URLs in the project description"
-    echo "  - Research 2-3 similar products in this domain"
-    echo "  - Capture UI/UX patterns and best practices"
-    echo "  - Document findings for spec and standards generation"
-    echo ""
 
     cd "$project_dir"
     mkdir -p "$project_dir/.claude"
@@ -1257,36 +1156,22 @@ When you have finished researching and documenting findings, say "RESEARCH_COMPL
 - **WebFetch**: For browsing and analyzing specific URLs
 - **Write/Edit**: For creating .claude/research-findings.md
 
-## IMPORTANT: Completion Signal
-When you have finished researching and documented all findings, you MUST say:
+## IMPORTANT: Exiting This Phase
+When you are done with research, remind the user:
 
-**RESEARCH_COMPLETE**
-
-This signals the system to automatically proceed to the next phase.
+**"Research phase complete! Type /exit to proceed to the planning phase."**
 
 ## Start Now
 Begin by analyzing the project description, then search for and analyze similar products. Document everything in .claude/research-findings.md.
 RESEARCH_EOF
 
-    echo -e "${BOLD}Starting Claude Code research session...${NC}"
-    echo "─────────────────────────────────────────"
-    echo ""
-    echo -e "${CYAN}Claude will auto-exit when RESEARCH_COMPLETE is detected.${NC}"
+    echo -e "${CYAN}Research phase${NC} - type /exit when done"
     echo ""
 
-    # Launch Claude for research with auto-exit on completion
     local research_prompt="Read CLAUDE.md for your research instructions. Research similar products and create .claude/research-findings.md with your findings. Say RESEARCH_COMPLETE when done."
+    claude "$research_prompt" --dangerously-skip-permissions || true
 
-    run_claude_until_complete "$research_prompt" "RESEARCH_COMPLETE"
-
-    echo ""
-    echo "─────────────────────────────────────────"
-
-    # Verify research was completed
-    if [[ -f "$project_dir/.claude/research-findings.md" ]]; then
-        log_success "Research findings saved to .claude/research-findings.md"
-    else
-        log_warn "No research findings created, will use template standards"
+    if [[ ! -f "$project_dir/.claude/research-findings.md" ]]; then
         # Create minimal placeholder so downstream steps don't fail
         cat > "$project_dir/.claude/research-findings.md" << 'EOF'
 # Research Findings
@@ -1306,22 +1191,10 @@ EOF
     fi
 }
 
-#───────────────────────────────────────────────────────────────────────────────
-# Claude Planning Phase
-#───────────────────────────────────────────────────────────────────────────────
-
 run_claude_planning() {
     local project_dir="$1"
     local project_name="$2"
     local project_description="$3"
-
-    log_info "Launching Claude Code for project planning..."
-    echo ""
-    echo -e "${CYAN}Claude will analyze your project and create:${NC}"
-    echo "  - Detailed project specification"
-    echo "  - Feature breakdown with specs"
-    echo "  - Technology recommendations"
-    echo ""
 
     cd "$project_dir"
 
@@ -1399,12 +1272,10 @@ ui
 - Be specific in acceptance criteria - they will guide implementation
 - Incorporate user's answers to clarifying questions into all specs
 
-## IMPORTANT: Completion Signal
-When you have finished planning and created all specification files, you MUST say:
+## IMPORTANT: Exiting This Phase
+When you have finished planning and created all specification files, remind the user:
 
-**PLANNING_COMPLETE**
-
-This signals the system to automatically proceed to the next phase.
+**"Planning phase complete! All specs have been created. Type /exit to proceed to the next phase."**
 
 ## Start Now
 1. First, read the research findings from .claude/research-findings.md
@@ -1412,70 +1283,21 @@ This signals the system to automatically proceed to the next phase.
 3. Create specs/PROJECT_SPEC.md incorporating their answers
 4. Create individual feature specs in specs/features/
 5. Create specs/.features with the feature list
-6. Say PLANNING_COMPLETE when done
+6. Remind the user to type /exit when done
 PROMPT_EOF
 
-    echo -e "${BOLD}Starting Claude Code planning session...${NC}"
-    echo "─────────────────────────────────────────"
-    echo ""
-    echo -e "${YELLOW}Instructions:${NC}"
-    echo "  1. Claude will ask clarifying questions about your project"
-    echo "  2. Answer questions about tech stack, APIs, UI preferences, etc."
-    echo "  3. Claude will create project and feature specs based on your answers"
-    echo ""
-    echo -e "${CYAN}Claude will auto-exit when PLANNING_COMPLETE is detected.${NC}"
-    echo ""
-    read -p "Press Enter to start Claude..."
+    echo -e "${CYAN}Planning phase${NC} - type /exit when done"
     echo ""
 
-    # Initial prompt to kick off planning
-    local planning_prompt="Read the CLAUDE.md file for your planning instructions, then create all the specification files as described. Say PLANNING_COMPLETE when done. Start now."
+    local planning_prompt="Read the CLAUDE.md file for your planning instructions, then create all the specification files as described. Start now."
+    claude "$planning_prompt" --dangerously-skip-permissions || true
 
-    # Launch Claude with auto-exit on completion
-    run_claude_until_complete "$planning_prompt" "PLANNING_COMPLETE"
-
-    echo ""
-    echo "─────────────────────────────────────────"
-
-    # Check if features file was created
+    # Auto-detect features if not created
     if [[ ! -f "$project_dir/specs/.features" ]]; then
-        log_warn "Claude did not create specs/.features file"
-        echo ""
-
-        # Try to auto-detect from specs/features directory
         if [[ -d "$project_dir/specs/features" ]] && ls "$project_dir/specs/features"/*.spec.md &>/dev/null; then
-            echo "Detected feature specs in specs/features/:"
-            local detected_features=()
             for spec in "$project_dir/specs/features"/*.spec.md; do
-                local fname=$(basename "$spec" .spec.md)
-                detected_features+=("$fname")
-                echo "  - $fname"
-            done
-            echo ""
-
-            if prompt_confirm "Use these features?" "y"; then
-                printf '%s\n' "${detected_features[@]}" > "$project_dir/specs/.features"
-            fi
-        fi
-
-        # If still no features file, ask user
-        if [[ ! -f "$project_dir/specs/.features" ]]; then
-            echo "Please enter the features that were planned:"
-
-            local features=()
-            while true; do
-                local feature=$(prompt_input "Feature name (or Enter to finish)" "")
-                if [[ -z "$feature" ]]; then
-                    break
-                fi
-                feature=$(echo "$feature" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
-                features+=("$feature")
-            done
-
-            # Write features file
-            if [[ ${#features[@]} -gt 0 ]]; then
-                printf '%s\n' "${features[@]}" > "$project_dir/specs/.features"
-            fi
+                basename "$spec" .spec.md
+            done > "$project_dir/specs/.features"
         fi
     fi
 
@@ -1517,8 +1339,6 @@ When working on a feature in this project:
 - Do not modify files outside your feature boundary
 - Update status log at each milestone
 EOF
-
-    log_success "Planning phase complete"
 }
 
 extract_features_from_plan() {
@@ -1539,10 +1359,6 @@ extract_features_from_plan() {
         fi
     fi
 }
-
-#───────────────────────────────────────────────────────────────────────────────
-# Main Bootstrap Flow
-#───────────────────────────────────────────────────────────────────────────────
 
 main() {
     # Parse command line arguments
@@ -1579,16 +1395,6 @@ main() {
 
     print_banner
 
-    echo -e "${BOLD}Welcome to the Parallel Development Workflow Bootstrapper!${NC}"
-    echo ""
-    echo "This script will:"
-    echo "  1. Create project directory and base structure"
-    echo "  2. Research similar products and gather UI/UX insights"
-    echo "  3. Launch Claude Code to plan the project (informed by research)"
-    echo "  4. Generate project-specific quality standards"
-    echo "  5. Set up worktrees and launch parallel Claude instances"
-    echo ""
-
     # Get project details (use args if provided, otherwise prompt)
     local project_name
     if [[ -n "$arg_name" ]]; then
@@ -1604,157 +1410,82 @@ main() {
         project_dir=$(prompt_input "Project directory" "$(pwd)/$project_name")
     fi
 
-    echo ""
     local project_description
     if [[ -n "$arg_desc" ]]; then
         project_description="$arg_desc"
     else
-        echo -e "${BOLD}Describe your project:${NC}"
-        echo "(Be detailed - Claude will use this to plan features and architecture)"
-        echo ""
         project_description=$(prompt_input "Project description" "")
     fi
 
     if [[ -z "$project_description" ]]; then
-        log_error "Project description is required for Claude to plan the project"
+        log_error "Project description is required"
         exit 1
     fi
 
     echo ""
-    echo -e "${BOLD}Configuration:${NC}"
-    echo "─────────────────────────────────────────"
-    echo "  Project Name: $project_name"
-    echo "  Directory:    $project_dir"
-    echo "  Description:  $project_description"
-    echo "─────────────────────────────────────────"
+    echo -e "  ${BOLD}Name:${NC} $project_name"
+    echo -e "  ${BOLD}Dir:${NC}  $project_dir"
     echo ""
 
-    if ! prompt_confirm "Proceed with setup?" "y"; then
-        log_warn "Setup cancelled"
+    if ! prompt_confirm "Proceed?" "y"; then
         exit 0
     fi
 
     echo ""
 
-    # Phase 1: Create base structure
-    log_info "Phase 1: Creating base project structure..."
+    # Create base structure
     create_directory_structure "$project_dir"
     init_git_repo "$project_dir"
     create_mcp_config "$project_dir"
 
-    # Phase 2: Research phase (runs FIRST to inform all subsequent steps)
-    log_info "Phase 2: Running research phase..."
-    echo ""
+    # Research phase
     run_research_phase "$project_dir" "$project_name" "$project_description"
 
-    # Phase 3: Run Claude planning (informed by research)
-    log_info "Phase 3: Running Claude Code for project planning (informed by research)..."
-    echo ""
+    # Planning phase
     run_claude_planning "$project_dir" "$project_name" "$project_description"
 
-    # Phase 4: Extract features from Claude's plan
-    log_info "Phase 4: Extracting features from plan..."
+    # Extract features
     local features=()
     while IFS= read -r feature; do
         [[ -n "$feature" ]] && features+=("$feature")
     done < <(extract_features_from_plan "$project_dir")
 
     if [[ ${#features[@]} -eq 0 ]]; then
-        log_error "No features found. Check specs/features/ directory."
+        log_error "No features found"
         exit 1
     fi
 
     echo ""
-    echo -e "${BOLD}Features identified by Claude:${NC}"
-    for feature in "${features[@]}"; do
-        echo "  - $feature"
-    done
+    echo -e "${BOLD}Features:${NC} ${features[*]}"
     echo ""
 
-    if ! prompt_confirm "Continue with these features?" "y"; then
-        log_warn "Setup cancelled"
+    if ! prompt_confirm "Continue?" "y"; then
         exit 0
     fi
 
-    # Phase 5: Create source structure
-    log_info "Phase 5: Creating source structure..."
     create_base_source "$project_dir" "${features[@]}"
-
-    # Phase 6: Generate standards (informed by research + spec)
-    log_info "Phase 6: Generating project-specific standards..."
-    echo ""
     create_standards "$project_dir"
-
-    # Phase 7: Create README
-    log_info "Phase 7: Finalizing project..."
     create_readme "$project_dir" "$project_name"
 
-    # Initial commit
     cd "$project_dir"
     git add -A
-    git commit -m "Initial project scaffold with Claude-planned architecture
+    git commit -q -m "Initial scaffold: ${project_name}
 
-Project: ${project_name}
-Description: ${project_description}
-
-Features planned by Claude:
-$(for feature in "${features[@]}"; do echo "- ${feature}"; done)
-
-Includes:
-- Project specification (specs/PROJECT_SPEC.md)
-- Feature specifications (specs/features/*.spec.md)
-- Quality standards (specs/STANDARDS.md)
-- Base source structure with stubs
-- MCP configuration for context7 and browseruse
+Features: ${features[*]}
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 
     echo ""
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                     PROJECT PLANNING COMPLETE!                           ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${BOLD}Claude planned the following features:${NC}"
-    for feature in "${features[@]}"; do
-        echo "  - $feature (specs/features/${feature}.spec.md)"
-    done
-    echo ""
-    echo -e "${BOLD}MCP Servers Configured:${NC}"
-    echo "  - context7 (library documentation lookup)"
-    echo "  - browseruse (web research & automation)"
+    log_success "Project ready at $project_dir"
     echo ""
 
-    # Ask if user wants to start the development loop
-    echo ""
-    if prompt_confirm "Start the full development loop now?" "y"; then
-        echo ""
-        log_info "Phase 8: Starting development loop..."
+    if prompt_confirm "Start development loop?" "y"; then
         multiclaude run "$project_dir"
     else
         echo ""
-        echo -e "${BOLD}Next Steps:${NC}"
+        echo "Run: ${CYAN}multiclaude run $project_dir${NC}"
         echo ""
-        echo "  1. Review the specs Claude created:"
-        echo "     ${CYAN}cat specs/PROJECT_SPEC.md${NC}"
-        for feature in "${features[@]}"; do
-            echo "     ${CYAN}cat specs/features/${feature}.spec.md${NC}"
-        done
-        echo ""
-        echo "  2. Start the full development loop:"
-        echo "     ${CYAN}multiclaude run $project_dir${NC}"
-        echo ""
-        echo "  3. Or run step by step:"
-        echo "     ${CYAN}multiclaude run $project_dir --setup-only${NC}    # Setup worktrees"
-        echo "     ${CYAN}multiclaude run $project_dir --workers-only${NC}  # Launch workers"
-        echo "     ${CYAN}multiclaude run $project_dir --loop-only${NC}     # Run orchestrator"
-        echo ""
-        echo "  4. Check status anytime:"
-        echo "     ${CYAN}multiclaude status $project_dir${NC}"
     fi
-
-    echo ""
-    echo -e "${BOLD}Project directory:${NC} $project_dir"
-    echo ""
 }
 
 # Run main
