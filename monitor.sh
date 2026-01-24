@@ -260,6 +260,24 @@ install_templates() {
 #───────────────────────────────────────────────────────────────────────────────
 
 launch_agents() {
+    # Check if agents are already running (windows already exist)
+    local existing_windows
+    existing_windows=$(tmux list-windows -t "$SESSION_NAME" -F '#{window_name}' 2>/dev/null | grep -v '^monitor$' || true)
+
+    if [[ -n "$existing_windows" ]]; then
+        log_step "Agent windows already exist, skipping launch..."
+        printf "  ${DIM}Existing windows: $(echo "$existing_windows" | tr '\n' ' ')${NC}\n"
+
+        # Start mailbox watcher in background if not already running
+        if ! pgrep -f "watch_mailbox" >/dev/null 2>&1; then
+            log_step "Starting mailbox router..."
+            watch_mailbox &
+            MAILBOX_PID=$!
+            printf "  ${GREEN}✓${NC} Mailbox router (PID: $MAILBOX_PID)\n"
+        fi
+        return 0
+    fi
+
     log_step "Launching agents..."
     echo ""
 

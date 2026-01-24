@@ -22,6 +22,42 @@ BOLD='\033[1m'
 # Helper Functions
 #───────────────────────────────────────────────────────────────────────────────
 
+# Run claude in tmux and auto-exit when a completion identifier is detected
+# Usage: run_claude_until_complete "prompt" "COMPLETION_IDENTIFIER"
+run_claude_until_complete() {
+    local prompt="$1"
+    local completion_id="$2"
+    local session_name="claude-bootstrap-$$"
+
+    # Create a detached tmux session running claude
+    tmux new-session -d -s "$session_name" \
+        "claude '$prompt' --dangerously-skip-permissions; echo 'SESSION_ENDED'; sleep 2"
+
+    # Attach to the session (user can interact)
+    # But also monitor in background for completion identifier
+    (
+        while tmux has-session -t "$session_name" 2>/dev/null; do
+            # Capture pane content and check for identifier
+            if tmux capture-pane -t "$session_name" -p 2>/dev/null | grep -q "$completion_id"; then
+                sleep 2  # Let Claude finish any final output
+                # Send /exit + Enter
+                tmux send-keys -t "$session_name" "/exit" Enter
+                sleep 1
+                break
+            fi
+            sleep 1
+        done
+    ) &
+    local monitor_pid=$!
+
+    # Attach to session (blocking - user sees Claude)
+    tmux attach -t "$session_name" 2>/dev/null || true
+
+    # Cleanup
+    kill "$monitor_pid" 2>/dev/null || true
+    tmux kill-session -t "$session_name" 2>/dev/null || true
+}
+
 print_banner() {
     echo -e "${CYAN}"
     cat << "EOF"
@@ -578,21 +614,23 @@ Standards are derived from research into similar products and project requiremen
 
 Start by reading the research findings and project spec, then generate comprehensive standards.
 
-## IMPORTANT: Exiting This Phase
-When you have finished generating standards, remind the user:
+## IMPORTANT: Completion Signal
+When you have finished generating standards, you MUST say:
 
-**"Standards generation complete! Type /exit to proceed to the development phase."**
+**STANDARDS_COMPLETE**
+
+This signals the system to automatically proceed to the next phase.
 STANDARDS_EOF
 
     echo -e "${BOLD}Starting Claude Code standards generation...${NC}"
     echo "─────────────────────────────────────────"
     echo ""
-    echo -e "${YELLOW}Note: Type /exit when Claude finishes to proceed.${NC}"
+    echo -e "${CYAN}Claude will auto-exit when STANDARDS_COMPLETE is detected.${NC}"
     echo ""
 
     local gen_prompt="Read CLAUDE.md for standards generation instructions. Read the research findings and project spec, then create specs/STANDARDS.md with project-specific quality standards. Say STANDARDS_COMPLETE when done."
 
-    claude "$gen_prompt" --dangerously-skip-permissions || true
+    run_claude_until_complete "$gen_prompt" "STANDARDS_COMPLETE"
 
     echo ""
     echo "─────────────────────────────────────────"
@@ -1219,10 +1257,12 @@ When you have finished researching and documenting findings, say "RESEARCH_COMPL
 - **WebFetch**: For browsing and analyzing specific URLs
 - **Write/Edit**: For creating .claude/research-findings.md
 
-## IMPORTANT: Exiting This Phase
-When you are done with research, remind the user:
+## IMPORTANT: Completion Signal
+When you have finished researching and documented all findings, you MUST say:
 
-**"Research phase complete! Type /exit to proceed to the planning phase."**
+**RESEARCH_COMPLETE**
+
+This signals the system to automatically proceed to the next phase.
 
 ## Start Now
 Begin by analyzing the project description, then search for and analyze similar products. Document everything in .claude/research-findings.md.
@@ -1231,13 +1271,13 @@ RESEARCH_EOF
     echo -e "${BOLD}Starting Claude Code research session...${NC}"
     echo "─────────────────────────────────────────"
     echo ""
-    echo -e "${YELLOW}Note: Type /exit when Claude finishes research to proceed.${NC}"
+    echo -e "${CYAN}Claude will auto-exit when RESEARCH_COMPLETE is detected.${NC}"
     echo ""
 
-    # Launch Claude for research
+    # Launch Claude for research with auto-exit on completion
     local research_prompt="Read CLAUDE.md for your research instructions. Research similar products and create .claude/research-findings.md with your findings. Say RESEARCH_COMPLETE when done."
 
-    claude "$research_prompt" --dangerously-skip-permissions || true
+    run_claude_until_complete "$research_prompt" "RESEARCH_COMPLETE"
 
     echo ""
     echo "─────────────────────────────────────────"
@@ -1359,10 +1399,12 @@ ui
 - Be specific in acceptance criteria - they will guide implementation
 - Incorporate user's answers to clarifying questions into all specs
 
-## IMPORTANT: Exiting This Phase
-When you have finished planning and created all specification files, remind the user:
+## IMPORTANT: Completion Signal
+When you have finished planning and created all specification files, you MUST say:
 
-**"Planning phase complete! All specs have been created. Type /exit to proceed to the next phase."**
+**PLANNING_COMPLETE**
+
+This signals the system to automatically proceed to the next phase.
 
 ## Start Now
 1. First, read the research findings from .claude/research-findings.md
@@ -1370,7 +1412,7 @@ When you have finished planning and created all specification files, remind the 
 3. Create specs/PROJECT_SPEC.md incorporating their answers
 4. Create individual feature specs in specs/features/
 5. Create specs/.features with the feature list
-6. Remind the user to type /exit when done
+6. Say PLANNING_COMPLETE when done
 PROMPT_EOF
 
     echo -e "${BOLD}Starting Claude Code planning session...${NC}"
@@ -1380,18 +1422,17 @@ PROMPT_EOF
     echo "  1. Claude will ask clarifying questions about your project"
     echo "  2. Answer questions about tech stack, APIs, UI preferences, etc."
     echo "  3. Claude will create project and feature specs based on your answers"
-    echo "  4. When Claude finishes and creates specs/.features, type ${BOLD}/exit${NC} to proceed"
     echo ""
-    echo -e "${CYAN}Tip: Be specific with your answers - they shape the entire project!${NC}"
+    echo -e "${CYAN}Claude will auto-exit when PLANNING_COMPLETE is detected.${NC}"
     echo ""
     read -p "Press Enter to start Claude..."
     echo ""
 
     # Initial prompt to kick off planning
-    local planning_prompt="Read the CLAUDE.md file for your planning instructions, then create all the specification files as described. Start now."
+    local planning_prompt="Read the CLAUDE.md file for your planning instructions, then create all the specification files as described. Say PLANNING_COMPLETE when done. Start now."
 
-    # Launch Claude interactively with the initial prompt
-    claude "$planning_prompt" --dangerously-skip-permissions || true
+    # Launch Claude with auto-exit on completion
+    run_claude_until_complete "$planning_prompt" "PLANNING_COMPLETE"
 
     echo ""
     echo "─────────────────────────────────────────"
