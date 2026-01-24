@@ -114,7 +114,7 @@ watch_mailbox() {
                 ' "$mailbox" | while IFS='|' read -r from to body; do
                     if [[ -n "$to" && -n "$body" ]]; then
                         # Route message via tmux
-                        tmux send-keys -t "$SESSION_NAME:$to" "$body" Enter Enter
+                        tmux send-keys -t "$SESSION_NAME:$to" "$body" Enter
                         log_step "Routed: $from -> $to"
                     fi
                 done

@@ -1328,31 +1328,8 @@ Break down the project into 3-7 independent feature modules that can be develope
 - Clear boundaries and interfaces
 - Each feature should be implementable by a single Claude instance
 
-### 3. Ask Clarifying Questions (IMPORTANT)
-Before finalizing specifications, ASK THE USER about any unknowns or decisions that need their input:
-
-**Technical Choices:**
-- UI framework/library preference (React, Vue, Svelte, etc.)?
-- Styling approach (Tailwind, CSS modules, styled-components)?
-- State management preference?
-- Database choice (if applicable)?
-
-**API & Services:**
-- Which API providers to use (authentication, payments, email, etc.)?
-- Any existing APIs or services to integrate with?
-- Preferred hosting/deployment platform?
-
-**Design & UX:**
-- Any specific design system or component library?
-- Mobile-first or desktop-first?
-- Any accessibility requirements (WCAG level)?
-
-**Project Scope:**
-- MVP vs full feature set?
-- Any hard constraints or requirements?
-- Timeline considerations?
-
-Ask these questions conversationally. Wait for the user's responses before finalizing the specs. Incorporate their answers into PROJECT_SPEC.md and feature specs.
+### 3. Clarify Unknowns (Use Plan Mode)
+Enter plan mode to gather requirements. Only ask about critical unknowns you cannot reasonably decide yourself (e.g., specific API providers they must use, existing systems to integrate with). Make sensible default choices for everything else.
 
 ### 4. Create Feature Specifications
 For each feature module, create a detailed spec file at \`specs/features/<feature-name>.spec.md\` containing:
@@ -1363,7 +1340,7 @@ For each feature module, create a detailed spec file at \`specs/features/<featur
 - Testing requirements
 - Definition of done
 
-### 6. Output Feature List (CRITICAL)
+### 5. Output Feature List (CRITICAL)
 **IMPORTANT**: After creating all specs, you MUST create a file at \`specs/.features\` containing ONLY the feature names (one per line, lowercase, no spaces). This file is required for the automation scripts to continue.
 
 Example \`specs/.features\` content:
