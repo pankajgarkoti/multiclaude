@@ -240,12 +240,15 @@ cmd_monitor() {
         exit 1
     fi
 
-    # Run monitor script in window 0
-    printf "${CYAN}Restarting monitor in $session_name:0...${NC}\n"
-    tmux send-keys -t "$session_name:0" C-c
+    # Find the first window (could be 0 or 1 depending on base-index)
+    local first_window
+    first_window=$(tmux list-windows -t "$session_name" -F '#{window_index}' | head -1)
+
+    printf "${CYAN}Restarting monitor in $session_name:$first_window...${NC}\n"
+    tmux send-keys -t "$session_name:$first_window" C-c
     sleep 0.5
-    tmux send-keys -t "$session_name:0" "$SCRIPT_DIR/monitor.sh '$path'" Enter
-    tmux attach -t "$session_name:0"
+    tmux send-keys -t "$session_name:$first_window" "$SCRIPT_DIR/monitor.sh '$path'" Enter
+    tmux attach -t "$session_name:$first_window"
 }
 
 cmd_install() {
