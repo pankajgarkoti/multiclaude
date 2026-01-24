@@ -50,25 +50,31 @@ Optional:
 multiclaude new my-app
 ```
 
-This creates the project and launches a tmux session with:
+This runs an interactive bootstrap process that:
+
+1. **Research Phase**: Claude researches similar products by browsing URLs mentioned in your description and finding 2-3 competitors. Captures UI/UX patterns and best practices into `.claude/research-findings.md`
+2. **Planning Phase**: Claude creates project specs (`specs/PROJECT_SPEC.md`) and individual feature specs (`specs/features/*.spec.md`) informed by research findings
+3. **Standards Generation**: Project-specific quality standards are generated in `specs/STANDARDS.md`
+4. **Development Loop**: Optionally launches the development session
+
+### Run Development Session
+
+```bash
+multiclaude run ./my-app
+```
+
+Creates a tmux session with multiple windows:
 
 - **Window 0:** Monitor (control center + mailbox router)
 - **Window 1:** Supervisor (coordinates everything)
 - **Window 2:** QA (runs tests when signaled)
 - **Window 3+:** Workers (one per feature)
 
-### What Happens During Project Creation
-
-1. **Research Phase**: Claude researches similar products, capturing UI/UX patterns and best practices
-2. **Planning Phase**: Claude creates project specs informed by research findings
-3. **Standards Generation**: Project-specific quality standards are generated (not copied from template)
-4. **Development**: Supervisor coordinates workers to implement features
-
-### Existing Project
-
-```bash
-multiclaude run ./my-app
-```
+The monitor script handles:
+- Setting up git worktrees for each feature
+- Installing agent instruction templates
+- Launching all Claude agents
+- Routing messages between agents via the central mailbox
 
 ### Check Status
 
@@ -76,11 +82,18 @@ multiclaude run ./my-app
 multiclaude status ./my-app
 ```
 
+Displays worker status, project state, and communication file status.
+
 ### Add Feature to Existing Project
 
 ```bash
 multiclaude add notifications --description "Push notifications for task updates"
 ```
+
+Options:
+- `--description "desc"` - Feature description
+- `--deps "feat1,feat2"` - Dependent features
+- `--no-worktree` - Skip worktree creation
 
 ### Attach to Running Session
 
@@ -88,14 +101,30 @@ multiclaude add notifications --description "Push notifications for task updates
 multiclaude attach ./my-app
 ```
 
+### Restart Monitor
+
+```bash
+multiclaude monitor ./my-app
+```
+
+Restarts the monitor script in an existing tmux session (useful if the monitor crashed).
+
+### Reinstall/Update
+
+```bash
+multiclaude install
+```
+
+Runs the installer to check dependencies and update the symlink.
+
 ## Research Phase
 
-When creating a new project, multiclaude runs a research phase that:
+When creating a new project with `multiclaude new`, an interactive research phase runs:
 
-1. **Browses Referenced URLs**: Analyzes any URLs mentioned in your project description
-2. **Researches Similar Products**: Finds and analyzes 2-3 similar products in your domain
-3. **Captures UI/UX Patterns**: Documents layouts, components, user flows, and interactions
-4. **Generates Informed Standards**: Creates project-specific quality standards based on findings
+1. **Analyzes Project Description**: Extracts URLs, product references, and domain terminology
+2. **Browses Referenced URLs**: Uses WebFetch to analyze mentioned products/services
+3. **Researches Similar Products**: Searches for and analyzes 2-3 competitors in the domain
+4. **Documents Findings**: Creates `.claude/research-findings.md` with UI/UX patterns, features, and recommendations
 
 ### Providing References for Better Results
 
@@ -110,40 +139,17 @@ multiclaude new my-app
 
 ### Research Output
 
-Research findings are saved to `.claude/research-findings.md` and inform:
-
-- Project specifications (specs/PROJECT_SPEC.md)
-- Feature specifications (specs/features/\*.spec.md)
-- Quality standards (specs/STANDARDS.md)
+Research findings inform the planning phase and are saved to `.claude/research-findings.md`.
 
 ## Monitor Dashboard
 
-The monitor (Window 0) provides a live dashboard for tracking progress:
+The monitor (Window 0) automatically runs a live dashboard showing:
 
-```bash
-# In the monitor, type:
-dashboard     # Start live auto-refreshing dashboard (every 5s)
-dashboard 10  # Custom refresh interval (10 seconds)
-# Press Ctrl+C to return to interactive mode
-```
+- **Worker Status**: Feature name, status code, and latest message
+- **Project Status**: Overall progress and completion markers
+- **Recent Messages**: Last 5 messages from the mailbox
 
-The dashboard shows:
-
-- **Worker Status**: Feature name, status (PENDING/IN_PROGRESS/COMPLETE/etc), and message
-- **Project Status**: Overall progress (X/Y features complete, merged, QA status)
-- **Recent Messages**: Last 3 messages from the mailbox
-
-### Monitor Commands
-
-| Command          | Description                            |
-| ---------------- | -------------------------------------- |
-| `s`, `status`    | Show current status                    |
-| `d`, `dashboard` | Live auto-refreshing dashboard         |
-| `w`, `watch`     | Watch status with system watch command |
-| `l`, `logs`      | Tail all worker status logs            |
-| `m`, `messages`  | Tail the central mailbox               |
-| `h`, `help`      | Show help                              |
-| `q`, `quit`      | Exit monitor (agents keep running)     |
+The dashboard auto-refreshes every 5 seconds. Press `Ctrl+C` once to see a warning (agents keep running), press again to quit the monitor.
 
 ## tmux Navigation
 
@@ -163,32 +169,35 @@ my-project/
 ├── .claude/
 │   ├── settings.json          # Claude permissions
 │   ├── research-findings.md   # Research phase output (UI/UX insights)
-│   ├── mailbox                 # Central message bus
-│   ├── qa-reports/             # Timestamped QA reports
-│   │   ├── qa-report-2024-01-24T100000.json
-│   │   ├── qa-report-2024-01-24T103000.json
-│   │   └── latest.json         # Symlink to most recent
-│   ├── fix-tasks/              # Timestamped fix task assignments
-│   ├── SUPERVISOR.md           # Supervisor instructions
-│   └── QA_INSTRUCTIONS.md      # QA instructions
+│   ├── mailbox                # Central message bus for agent communication
+│   ├── qa-reports/            # QA report storage
+│   ├── fix-tasks/             # Fix task assignments
+│   ├── SUPERVISOR.md          # Supervisor agent instructions
+│   ├── QA_INSTRUCTIONS.md     # QA agent instructions
+│   ├── ALL_MERGED             # Marker: all features merged to main
+│   ├── QA_COMPLETE            # Marker: QA passed
+│   ├── QA_NEEDS_FIXES         # Marker: QA found issues
+│   └── PROJECT_COMPLETE       # Marker: project finished
 ├── specs/
-│   ├── PROJECT_SPEC.md         # Architecture spec (informed by research)
-│   ├── STANDARDS.md            # Quality standards (generated, not template)
-│   ├── .features               # Feature list (one per line)
+│   ├── PROJECT_SPEC.md        # Architecture spec (informed by research)
+│   ├── STANDARDS.md           # Quality standards for QA verification
+│   ├── .features              # Feature list (one per line)
 │   └── features/
-│       └── *.spec.md           # Individual feature specs
+│       └── *.spec.md          # Individual feature specs
 ├── worktrees/
-│   └── feature-*/              # Isolated worktrees per feature
+│   └── feature-*/             # Isolated git worktrees per feature
 │       └── .claude/
-│           ├── status.log      # Worker status updates
-│           ├── WORKER.md       # Worker instructions
-│           └── FEATURE_SPEC.md # Feature specification
-└── src/                        # Source code
+│           ├── status.log     # Worker status updates
+│           ├── WORKER.md      # Worker instructions
+│           └── FEATURE_SPEC.md # Copy of feature specification
+├── src/                       # Source code (stub modules created per feature)
+├── CLAUDE.md                  # Project-wide Claude instructions
+└── .mcp.json                  # MCP server configuration
 ```
 
 ## Agent Communication
 
-Agents communicate via a **central mailbox** (`.claude/mailbox`).
+Agents communicate via a **central mailbox** (`.claude/mailbox`). The monitor script watches the mailbox and routes messages to the appropriate agent window via tmux.
 
 ### Message Format
 
@@ -201,66 +210,46 @@ Your message here.
 Can be multiple lines.
 ```
 
-The monitor script watches the mailbox and routes messages to the appropriate agent via tmux.
-
 ### Message Flow
 
 ```
-+---------------------------------------------------------------------+
-|                         MESSAGE FLOW                                 |
-|                                                                     |
-|   +----------+     writes      +---------------+                    |
-|   |  Agent   | --------------> |   MAILBOX     |                    |
-|   |  (any)   |                 | .claude/mailbox|                   |
-|   +----------+                 +-------+-------+                    |
-|                                        |                            |
-|                                        | watches                    |
-|                                        v                            |
-|                                +---------------+                    |
-|                                |   MONITOR     |                    |
-|                                |  (routes)     |                    |
-|                                +-------+-------+                    |
-|                                        |                            |
-|                         parses [from -> to]                         |
-|                                        |                            |
-|                    +-------------------+-------------------+        |
-|                    v                   v                   v        |
-|             tmux send-keys      tmux send-keys      tmux send-keys  |
-|                -t qa           -t supervisor         -t <feature>   |
-|                                                                     |
-+---------------------------------------------------------------------+
+┌─────────────────────────────────────────────────────────────────┐
+│                       MESSAGE FLOW                               │
+│                                                                 │
+│  ┌─────────┐     writes      ┌──────────────┐                   │
+│  │  Agent  │ ─────────────▶  │   MAILBOX    │                   │
+│  │  (any)  │                 │.claude/mailbox│                  │
+│  └─────────┘                 └──────┬───────┘                   │
+│                                     │                           │
+│                                     │ watches (every 2s)        │
+│                                     ▼                           │
+│                              ┌──────────────┐                   │
+│                              │   MONITOR    │                   │
+│                              │  (routes)    │                   │
+│                              └──────┬───────┘                   │
+│                                     │                           │
+│                        parses [from -> to]                      │
+│                                     │                           │
+│               ┌─────────────────────┼─────────────────────┐     │
+│               ▼                     ▼                     ▼     │
+│        tmux send-keys        tmux send-keys        tmux send-keys│
+│           -t qa             -t supervisor          -t <feature>  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Message Types
+### Status Codes
 
-| Message                | From       | To         | Purpose                          |
-| ---------------------- | ---------- | ---------- | -------------------------------- |
-| `RUN_QA`               | supervisor | qa         | Signal QA to start testing       |
-| `QA_RESULT: PASS/FAIL` | qa         | supervisor | Report test results              |
-| `FIX_TASK`             | supervisor | worker     | Assign fix work after QA failure |
-| `WORKER_COMPLETE`      | worker     | supervisor | Worker finished (optional)       |
+Workers log status to `.claude/status.log` in the format: `<timestamp> [STATUS] message`
 
-### Status Codes (Worker -> Supervisor)
-
-Workers communicate status via `.claude/status.log` (polled by supervisor):
-
-```
-PENDING      Not started
-IN_PROGRESS  Working
-BLOCKED      Cannot proceed
-TESTING      Running tests
-COMPLETE     Done, merge ready
-FAILED       Error
-```
-
-## QA Reports
-
-QA reports are timestamped and stored in `.claude/qa-reports/`:
-
-- **Format:** `qa-report-YYYY-MM-DDTHHMMSS.json`
-- **Latest:** `.claude/qa-reports/latest.json` (symlink)
-
-This preserves history across multiple QA runs.
+| Status        | Meaning                    |
+| ------------- | -------------------------- |
+| `PENDING`     | Not started                |
+| `IN_PROGRESS` | Active development         |
+| `BLOCKED`     | Cannot proceed             |
+| `TESTING`     | Running tests              |
+| `COMPLETE`    | Ready for merge            |
+| `FAILED`      | Needs intervention         |
 
 ## Troubleshooting
 
@@ -284,10 +273,27 @@ rm -rf worktrees/feature-<name>
 ```bash
 # View recent messages
 tail -50 .claude/mailbox
-
-# Check mailbox router is running (in monitor window)
-ps aux | grep watch_mailbox
 ```
+
+### Monitor Not Running
+
+If the monitor window shows a shell prompt instead of the dashboard:
+
+```bash
+multiclaude monitor ./my-project
+```
+
+## Scripts Reference
+
+| Script             | Purpose                                                  |
+| ------------------ | -------------------------------------------------------- |
+| `multiclaude`      | Main CLI entry point                                     |
+| `bootstrap.sh`     | Creates new project (research, planning, scaffolding)    |
+| `loop.sh`          | Creates tmux session and delegates to monitor.sh         |
+| `monitor.sh`       | Sets up worktrees, launches agents, runs dashboard       |
+| `feature.sh`       | Adds a new feature to existing project                   |
+| `install.sh`       | Installs dependencies and creates symlink                |
+| `remote-install.sh`| One-liner installer (clones repo then runs install.sh)   |
 
 ## License
 
