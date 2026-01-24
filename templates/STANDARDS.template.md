@@ -1,183 +1,162 @@
-# Project Quality Standards
+# User Experience Standards
 
-This document defines the quality standards that must be met before the project is considered complete. The QA Agent will verify each standard.
+Every standard is a user action or flow. QA tests the app like a real human user would.
 
----
-
-## Testing Standards
-
-### STD-T001: Unit Tests Pass
-**Description**: All unit tests must pass without failures.
-**Verification**: Run `npm test` and verify exit code is 0.
-**Acceptance**: 100% of tests passing.
-
-### STD-T002: Code Coverage
-**Description**: Code coverage must meet minimum threshold.
-**Verification**: Run `npm run test:coverage` and check coverage report.
-**Acceptance**: >= 80% line coverage for all feature modules.
-
-### STD-T003: No Skipped Tests
-**Description**: No tests should be skipped or marked as TODO.
-**Verification**: Check test output for skipped/pending tests.
-**Acceptance**: 0 skipped tests.
+**Philosophy:** Workers and Supervisor handle ALL code quality (tests, lint, TypeScript, builds, dependencies). By the time QA runs, the app MUST build and run. QA only validates user experience.
 
 ---
 
-## UI Standards
+## App Launch
 
-### STD-U001: No Console Errors
-**Description**: Application must not produce console errors during normal operation.
-**Verification**: Open app in browser, check console for errors.
-**Acceptance**: 0 console errors on page load and basic navigation.
+### STD-001: App Loads Without Errors
+**User Action:** Open the app URL in a browser.
+**Expected:** The app loads and displays the initial screen without any visible errors or blank pages.
+**Verification:** Open browser, navigate to app URL, observe the page loads correctly.
 
-### STD-U002: Responsive Design
-**Description**: Application must be usable on mobile and desktop viewports.
-**Verification**: Test at 375px, 768px, and 1280px widths.
-**Acceptance**: No layout breakage, all features accessible.
-
-### STD-U003: Loading States
-**Description**: Async operations must show loading indicators.
-**Verification**: Trigger async operations, verify loading states appear.
-**Acceptance**: All API calls show appropriate loading feedback.
+### STD-002: Initial Screen is Usable
+**User Action:** View the first screen after the app loads.
+**Expected:** The user can see and understand the interface. Key elements are visible and not obscured.
+**Verification:** Confirm main UI elements are visible and the user knows what to do next.
 
 ---
 
-## Security Standards
+## Navigation
 
-### STD-S001: No Hardcoded Secrets
-**Description**: No API keys, passwords, or secrets in source code.
-**Verification**: Grep source for common secret patterns.
-**Acceptance**: 0 hardcoded secrets found.
+### STD-003: Navigation Links Work
+**User Action:** Click on navigation links (menu items, sidebar, header links).
+**Expected:** Each link navigates to the expected destination without errors.
+**Verification:** Click each navigation element and verify it goes to the right place.
 
-### STD-S002: Input Validation
-**Description**: All user inputs must be validated.
-**Verification**: Test forms with invalid data.
-**Acceptance**: Invalid inputs rejected with appropriate error messages.
-
-### STD-S003: Authentication
-**Description**: Protected routes must require authentication.
-**Verification**: Access protected routes without auth.
-**Acceptance**: Redirected to login or shown 401/403.
+### STD-004: User Can Navigate Between Sections
+**User Action:** Move between the main sections of the app.
+**Expected:** User can freely navigate forward and backward through the app sections.
+**Verification:** Navigate to different sections and back, verify no dead ends.
 
 ---
 
-## Code Quality Standards
+## Core User Flows
 
-### STD-Q001: No Lint Errors
-**Description**: Code must pass linting without errors.
-**Verification**: Run `npm run lint`.
-**Acceptance**: 0 lint errors (warnings acceptable).
+### STD-005: Primary User Action Completes
+**User Action:** Perform the main action the app is built for (e.g., submit a form, create an item, complete a transaction).
+**Expected:** The action completes successfully with appropriate feedback.
+**Verification:** Execute the primary flow end-to-end and confirm success.
 
-### STD-Q002: TypeScript Strict Mode
-**Description**: No TypeScript errors in strict mode.
-**Verification**: Run `npx tsc --noEmit`.
-**Acceptance**: 0 TypeScript errors.
+### STD-006: Secondary Actions Work
+**User Action:** Perform supporting actions (edit, delete, search, filter, etc.).
+**Expected:** Each action completes as expected.
+**Verification:** Test each secondary action and verify the result.
 
-### STD-Q003: No TODO Comments
-**Description**: No unresolved TODO/FIXME comments in production code.
-**Verification**: Grep source for TODO/FIXME patterns.
-**Acceptance**: 0 unresolved TODOs in src/ (excluding tests).
-
----
-
-## Performance Standards
-
-### STD-P001: Page Load Time
-**Description**: Initial page load must be fast.
-**Verification**: Measure time to first contentful paint.
-**Acceptance**: < 3 seconds on 3G connection simulation.
-
-### STD-P002: Bundle Size
-**Description**: JavaScript bundle must not exceed size limit.
-**Verification**: Check build output size.
-**Acceptance**: Main bundle < 500KB gzipped.
+### STD-007: Data Displays Correctly
+**User Action:** View data that the app displays (lists, details, dashboards).
+**Expected:** Data appears correctly formatted and readable.
+**Verification:** Check that displayed data is accurate and well-formatted.
 
 ---
 
-## Documentation Standards
+## Error States
 
-### STD-D001: README Exists
-**Description**: Project must have a README with setup instructions.
-**Verification**: Check for README.md with required sections.
-**Acceptance**: README exists with: description, setup, usage sections.
+### STD-008: Invalid Input Shows Error
+**User Action:** Enter invalid data in forms (wrong format, missing required fields).
+**Expected:** The app shows a helpful, user-friendly error message.
+**Verification:** Submit invalid input and verify error messages are clear and helpful.
 
-### STD-D002: API Documentation
-**Description**: API endpoints must be documented.
-**Verification**: Check for API docs in docs/ or inline.
-**Acceptance**: All endpoints documented with request/response examples.
+### STD-009: Network Errors Are Handled
+**User Action:** Trigger a network failure scenario (if testable).
+**Expected:** The app shows a user-friendly message, not a crash or technical error.
+**Verification:** If possible, test offline behavior or API failure handling.
 
----
-
-## Functional Standards
-
-### STD-F001: Core Features Work
-**Description**: All features in PROJECT_SPEC.md must be functional.
-**Verification**: Manual testing of each feature.
-**Acceptance**: All specified features work as described.
-
-### STD-F002: Error Handling
-**Description**: Errors must be handled gracefully.
-**Verification**: Trigger error conditions, verify handling.
-**Acceptance**: Errors show user-friendly messages, don't crash app.
-
-### STD-F003: Data Persistence
-**Description**: User data must persist correctly.
-**Verification**: Create data, refresh, verify data remains.
-**Acceptance**: Data persists across sessions as specified.
+### STD-010: User Can Recover From Errors
+**User Action:** After encountering an error, try to continue using the app.
+**Expected:** The user can recover and continue without refreshing or restarting.
+**Verification:** After an error, verify the app remains usable.
 
 ---
 
-## Feature-Specific Standards
+## Visual and Interaction
 
-<!-- Add feature-specific standards below based on your project -->
+### STD-011: Buttons Respond to Clicks
+**User Action:** Click buttons in the interface.
+**Expected:** Buttons provide visual feedback and trigger their actions.
+**Verification:** Click buttons and verify they respond and work.
 
-### STD-AUTH-001: Login Flow
-**Description**: Users can log in with valid credentials.
-**Verification**: Test login with valid/invalid credentials.
-**Acceptance**: Valid login succeeds, invalid shows error.
+### STD-012: Forms Submit Correctly
+**User Action:** Fill out and submit forms.
+**Expected:** Form data is accepted and processed correctly.
+**Verification:** Complete form flows and verify data is saved/sent.
 
-### STD-AUTH-002: Session Management
-**Description**: Sessions are managed securely.
-**Verification**: Check token storage, expiration handling.
-**Acceptance**: Tokens stored securely, expired tokens rejected.
+### STD-013: Loading States Are Visible
+**User Action:** Trigger actions that require loading (API calls, page transitions).
+**Expected:** The user sees loading indicators during waits.
+**Verification:** Observe that loading states appear during async operations.
 
-<!-- Add more feature-specific standards as needed -->
-
----
-
-## Standard ID Format
-
-- `STD-T###` - Testing standards
-- `STD-U###` - UI/UX standards
-- `STD-S###` - Security standards
-- `STD-Q###` - Code quality standards
-- `STD-P###` - Performance standards
-- `STD-D###` - Documentation standards
-- `STD-F###` - Functional standards
-- `STD-<FEATURE>-###` - Feature-specific standards
+### STD-014: Interface is Responsive
+**User Action:** Use the app on different screen sizes (if applicable).
+**Expected:** The app remains usable on mobile and desktop viewports.
+**Verification:** Test at common viewport sizes (mobile, tablet, desktop).
 
 ---
 
 ## Verification Summary
 
-| ID | Name | Verification Method |
-|----|------|---------------------|
-| STD-T001 | Unit Tests Pass | `npm test` |
-| STD-T002 | Code Coverage | `npm run test:coverage` |
-| STD-T003 | No Skipped Tests | Check test output |
-| STD-U001 | No Console Errors | Browser console |
-| STD-U002 | Responsive Design | Multiple viewports |
-| STD-U003 | Loading States | Trigger async ops |
-| STD-S001 | No Hardcoded Secrets | Grep source |
-| STD-S002 | Input Validation | Test invalid inputs |
-| STD-S003 | Authentication | Access protected routes |
-| STD-Q001 | No Lint Errors | `npm run lint` |
-| STD-Q002 | TypeScript Strict | `npx tsc --noEmit` |
-| STD-Q003 | No TODO Comments | Grep source |
-| STD-P001 | Page Load Time | Performance measurement |
-| STD-P002 | Bundle Size | Build output |
-| STD-D001 | README Exists | File check |
-| STD-D002 | API Documentation | Doc check |
-| STD-F001 | Core Features Work | Manual testing |
-| STD-F002 | Error Handling | Trigger errors |
-| STD-F003 | Data Persistence | Data lifecycle test |
+| ID | User Flow | How to Test |
+|----|-----------|-------------|
+| STD-001 | App loads | Open URL, check page loads |
+| STD-002 | Initial screen usable | View first screen, check clarity |
+| STD-003 | Navigation works | Click all nav links |
+| STD-004 | Section navigation | Move between sections |
+| STD-005 | Primary action | Complete main user flow |
+| STD-006 | Secondary actions | Test edit, delete, search, etc. |
+| STD-007 | Data displays | Check lists and details |
+| STD-008 | Invalid input error | Submit bad data, check message |
+| STD-009 | Network error | Test offline/failure handling |
+| STD-010 | Error recovery | Continue after error |
+| STD-011 | Buttons work | Click and verify |
+| STD-012 | Forms submit | Complete form flows |
+| STD-013 | Loading states | Observe spinners/indicators |
+| STD-014 | Responsive | Test multiple viewports |
+
+---
+
+## Adding Project-Specific Standards
+
+Add standards specific to your project below. Follow the same format:
+
+```markdown
+### STD-XXX: [User Flow Name]
+**User Action:** What the user does.
+**Expected:** What should happen.
+**Verification:** How to test it.
+```
+
+**Examples:**
+
+```markdown
+### STD-015: User Can Log In
+**User Action:** Enter credentials and click login.
+**Expected:** User is authenticated and sees the dashboard.
+**Verification:** Log in with valid credentials, verify dashboard appears.
+
+### STD-016: User Can Add Item to Cart
+**User Action:** Click "Add to Cart" on a product.
+**Expected:** Item appears in cart with correct quantity.
+**Verification:** Add item, open cart, verify item is present.
+```
+
+---
+
+## What NOT to Include
+
+These are handled by Workers and Supervisor, NOT QA:
+
+- Unit test pass/fail
+- Code coverage percentages
+- Linting errors
+- TypeScript errors
+- Bundle size limits
+- Build output checks
+- TODO/FIXME comments
+- API documentation
+- README completeness
+- Hardcoded secret scans
+
+QA is a **human user simulator**. If a human user wouldn't check it, QA doesn't check it.
