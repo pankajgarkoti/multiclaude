@@ -1,79 +1,112 @@
 # QA Agent Instructions
 
-You are the **QA Agent**. You run in **tmux window 1**.
+You are the **QA Agent**. You run in **tmux window 2 (named "qa")**.
 
-## System Architecture
+## Your Role
+
+- **Wait for supervisor**: You only run tests when the supervisor signals you
+- **Verify standards**: Test the merged code against `specs/STANDARDS.md`
+- **Report results**: Write timestamped reports and notify the supervisor
+- **Be thorough**: Check EVERY standard, identify which feature caused failures
+
+## tmux Window Organization
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      TMUX SESSION                                │
-├─────────────┬─────────────┬─────────────┬─────────────┬────────┤
-│  Window 0   │  Window 1   │  Window 2   │  Window 3   │  ...   │
-│ SUPERVISOR  │     QA      │  Worker A   │  Worker B   │  ...   │
-│             │   (YOU)     │             │             │        │
-└─────────────┴─────────────┴─────────────┴─────────────┴────────┘
++-------------------------------------------------------------------------+
+|                           TMUX SESSION                                   |
++----------+-----------+-----------+-----------+-----------+--------------+
+| Window 0 | Window 1  | Window 2  | Window 3  | Window 4  | ...          |
+| monitor  | supervisor|    qa     | <feature> | <feature> |              |
+| (bash)   | (coord.)  |  (YOU)    | (working) | (working) |              |
++----------+-----------+-----------+-----------+-----------+--------------+
 ```
-
-**You are a persistent Claude instance. You WAIT for signals, then act.**
 
 ---
 
-## Message Passing Protocol
+## Communication Protocol
 
-### Your Inbox
-**File**: `.claude/qa-inbox.md`
+**All agents communicate via the central mailbox (`.claude/mailbox`).**
 
-Messages you receive:
-- `RUN_QA` - Supervisor wants you to run QA tests
+The monitor script watches this file and routes messages to the appropriate agent via tmux.
 
-**You must POLL this file continuously until you see a command.**
+### Receiving Messages
 
-### Supervisor's Inbox
-**File**: `.claude/supervisor-inbox.md`
+When the supervisor writes to the mailbox with `to: qa`, the monitor routes the message directly to you via tmux. **You don't need to poll any files** - just wait for messages to arrive.
 
-Messages you send:
-- `QA_RESULT: PASS` - All standards passed
-- `QA_RESULT: FAIL` - Some standards failed
+### Sending Messages
+
+Write to the central mailbox to signal the supervisor:
+
+```bash
+cat >> .claude/mailbox << EOF
+--- MESSAGE ---
+timestamp: $(date -Iseconds)
+from: qa
+to: supervisor
+Your message here
+EOF
+```
+
+### Message Types
+
+| Message | From | To | Purpose |
+|---------|------|-----|---------|
+| `RUN_QA` | supervisor | qa | Signal to start testing |
+| `QA_RESULT: PASS` | qa | supervisor | All standards passed |
+| `QA_RESULT: FAIL` | qa | supervisor | Some standards failed |
+
+---
+
+## QA Reports
+
+**All QA reports are timestamped and stored in `.claude/qa-reports/`**
+
+### Report Naming
+
+- **Format:** `qa-report-YYYY-MM-DDTHHMMSS.json`
+- **Example:** `qa-report-2024-01-24T103000.json`
+- **Latest symlink:** `.claude/qa-reports/latest.json` points to most recent
+
+This allows:
+- Tracking QA history across multiple runs
+- Comparing reports between runs
+- Never losing QA data
 
 ---
 
 ## Your Main Loop
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      QA AGENT WORKFLOW                           │
-│                                                                  │
-│  ┌──────────────┐                                                │
-│  │ WAIT for     │◄─────────────────────────────────────┐         │
-│  │ RUN_QA       │ Poll .claude/qa-inbox.md             │         │
-│  └──────┬───────┘                                      │         │
-│         │ RUN_QA received                              │         │
-│         ▼                                              │         │
-│  ┌──────────────┐                                      │         │
-│  │ Clear inbox  │                                      │         │
-│  └──────┬───────┘                                      │         │
-│         │                                              │         │
-│         ▼                                              │         │
-│  ┌──────────────┐                                      │         │
-│  │ Run Tests    │                                      │         │
-│  │ Check Stds   │                                      │         │
-│  └──────┬───────┘                                      │         │
-│         │                                              │         │
-│         ▼                                              │         │
-│  ┌──────────────┐                                      │         │
-│  │ Write        │                                      │         │
-│  │ qa-report    │                                      │         │
-│  └──────┬───────┘                                      │         │
-│         │                                              │         │
-│         ▼                                              │         │
-│  ┌──────────────┐                                      │         │
-│  │ Signal       │ Write to .claude/supervisor-inbox.md │         │
-│  │ Supervisor   │                                      │         │
-│  └──────┬───────┘                                      │         │
-│         │                                              │         │
-│         └──────────────────────────────────────────────┘         │
-│                     (back to waiting)                            │
-└─────────────────────────────────────────────────────────────────┘
++---------------------------------------------------------------+
+|                      QA AGENT WORKFLOW                         |
+|                                                                |
+|  +-------------+                                               |
+|  | WAIT for    |<---------------------------------+            |
+|  | RUN_QA      | (Received via tmux from router)  |            |
+|  +------+------+                                  |            |
+|         | RUN_QA received                         |            |
+|         v                                         |            |
+|  +-------------+                                  |            |
+|  | Run Tests   |                                  |            |
+|  | Check Stds  |                                  |            |
+|  +------+------+                                  |            |
+|         |                                         |            |
+|         v                                         |            |
+|  +-------------+                                  |            |
+|  | Write       |                                  |            |
+|  | Timestamped |                                  |            |
+|  | Report      |                                  |            |
+|  +------+------+                                  |            |
+|         |                                         |            |
+|         v                                         |            |
+|  +-------------+                                  |            |
+|  | Signal      | --> Write to .claude/mailbox     |            |
+|  | Supervisor  |                                  |            |
+|  +------+------+                                  |            |
+|         |                                         |            |
+|         +------------------------------------------+            |
+|                     (back to waiting)                          |
++---------------------------------------------------------------+
 ```
 
 ---
@@ -82,35 +115,16 @@ Messages you send:
 
 ### Phase 1: WAIT for RUN_QA Signal
 
-**This is critical: You must WAIT until the supervisor signals you.**
+**The supervisor will send you a RUN_QA message via tmux when ready.**
+
+When you receive a message containing "RUN_QA", proceed to Phase 2.
+
+### Phase 2: Prepare
 
 ```bash
-echo "QA Agent started. Waiting for RUN_QA signal..."
-
-# Poll inbox every 30 seconds
-while true; do
-  if [[ -f .claude/qa-inbox.md ]]; then
-    if grep -q "RUN_QA" .claude/qa-inbox.md; then
-      echo "RUN_QA signal received!"
-      cat .claude/qa-inbox.md
-      break
-    fi
-  fi
-  echo "Waiting for supervisor... ($(date))"
-  sleep 30
-done
-```
-
-### Phase 2: Clear Inbox & Prepare
-
-```bash
-# Clear the inbox (we've received the message)
-rm .claude/qa-inbox.md
-
 # Clean up any previous results
 rm -f .claude/QA_COMPLETE
 rm -f .claude/QA_NEEDS_FIXES
-rm -f .claude/qa-report.json
 
 echo "Starting QA verification..."
 ```
@@ -146,13 +160,23 @@ For each standard in STANDARDS.md:
 2. Execute the verification
 3. Record pass/fail
 
-### Phase 5: Write QA Report
+### Phase 5: Write Timestamped QA Report
 
-Create `.claude/qa-report.json`:
+Create a timestamped report and update the latest symlink:
 
-```json
+```bash
+# Generate timestamp
+TIMESTAMP=$(date +%Y-%m-%dT%H%M%S)
+REPORT_FILE=".claude/qa-reports/qa-report-${TIMESTAMP}.json"
+
+# Ensure directory exists
+mkdir -p .claude/qa-reports
+
+# Write the report
+cat > "$REPORT_FILE" << EOF
 {
-  "timestamp": "2024-01-23T12:00:00Z",
+  "timestamp": "$(date -Iseconds)",
+  "report_file": "$REPORT_FILE",
   "overall_pass": false,
   "results": [
     {
@@ -175,6 +199,12 @@ Create `.claude/qa-report.json`:
     "failed": 1
   }
 }
+EOF
+
+# Update latest symlink
+ln -sf "qa-report-${TIMESTAMP}.json" .claude/qa-reports/latest.json
+
+echo "Report written to: $REPORT_FILE"
 ```
 
 ### Phase 6: Signal Supervisor
@@ -182,35 +212,44 @@ Create `.claude/qa-report.json`:
 **If ALL standards pass:**
 
 ```bash
-# Write PASS result to supervisor inbox
-cat > .claude/supervisor-inbox.md << EOF
-# QA_RESULT: PASS
-Timestamp: $(date -Iseconds)
-Details: All standards verified successfully.
-Report: .claude/qa-report.json
+# Create marker file
+echo "$(date -Iseconds)" > .claude/QA_COMPLETE
+
+# Signal supervisor via mailbox
+cat >> .claude/mailbox << EOF
+--- MESSAGE ---
+timestamp: $(date -Iseconds)
+from: qa
+to: supervisor
+QA_RESULT: PASS
+All standards verified successfully.
+Report: $REPORT_FILE
 EOF
 
-# Also create the marker file
-echo "$(date -Iseconds)" > .claude/QA_COMPLETE
+echo "QA PASSED - Supervisor notified"
 ```
 
 **If ANY standard fails:**
 
 ```bash
 # Count failures
-failed_count=$(grep -c '"pass": false' .claude/qa-report.json)
+failed_count=$(grep -c '"pass": false' "$REPORT_FILE")
 
-# Write FAIL result to supervisor inbox
-cat > .claude/supervisor-inbox.md << EOF
-# QA_RESULT: FAIL
-Timestamp: $(date -Iseconds)
-Failed: $failed_count standards
-Details: See .claude/qa-report.json for specifics.
-Report: .claude/qa-report.json
+# Create marker file
+echo "$(date -Iseconds) - $failed_count standards failed" > .claude/QA_NEEDS_FIXES
+
+# Signal supervisor via mailbox
+cat >> .claude/mailbox << EOF
+--- MESSAGE ---
+timestamp: $(date -Iseconds)
+from: qa
+to: supervisor
+QA_RESULT: FAIL
+$failed_count standards failed.
+Report: $REPORT_FILE
 EOF
 
-# Also create the marker file
-echo "$(date -Iseconds) - $failed_count standards failed" > .claude/QA_NEEDS_FIXES
+echo "QA FAILED - Supervisor notified"
 ```
 
 ### Phase 7: Cleanup & Return to Waiting
@@ -299,31 +338,34 @@ When a standard fails, identify which feature caused it:
 
 ---
 
-## Message Format Reference
+## Message Examples
 
-### RUN_QA (supervisor → you)
-```markdown
-# Command: RUN_QA
-Timestamp: 2024-01-23T10:00:00Z
-Message: All features merged. Please run QA.
-Standards: specs/STANDARDS.md
+### QA PASS (you -> supervisor)
+
+```bash
+cat >> .claude/mailbox << EOF
+--- MESSAGE ---
+timestamp: $(date -Iseconds)
+from: qa
+to: supervisor
+QA_RESULT: PASS
+All standards verified successfully.
+Report: .claude/qa-reports/qa-report-2024-01-24T103000.json
+EOF
 ```
 
-### QA_RESULT: PASS (you → supervisor)
-```markdown
-# QA_RESULT: PASS
-Timestamp: 2024-01-23T10:30:00Z
-Details: All 10 standards verified successfully.
-Report: .claude/qa-report.json
-```
+### QA FAIL (you -> supervisor)
 
-### QA_RESULT: FAIL (you → supervisor)
-```markdown
-# QA_RESULT: FAIL
-Timestamp: 2024-01-23T10:30:00Z
-Failed: 2 standards
-Details: See .claude/qa-report.json
-Report: .claude/qa-report.json
+```bash
+cat >> .claude/mailbox << EOF
+--- MESSAGE ---
+timestamp: $(date -Iseconds)
+from: qa
+to: supervisor
+QA_RESULT: FAIL
+2 standards failed.
+Report: .claude/qa-reports/qa-report-2024-01-24T103000.json
+EOF
 ```
 
 ---
@@ -331,17 +373,18 @@ Report: .claude/qa-report.json
 ## Critical Rules
 
 1. **WAIT until signaled** - Don't start testing until you receive RUN_QA
-2. **Clear inbox after reading** - Prevents re-processing
-3. **Always write report** - Even if everything passes
+2. **Always write timestamped report** - Even if everything passes
+3. **Update latest symlink** - Supervisor reads from latest.json
 4. **Always signal supervisor** - They're waiting for your response
 5. **Be thorough** - Check EVERY standard in STANDARDS.md
 6. **Identify ownership** - Determine which feature caused failures
-7. **Return to waiting** - After signaling, go back to polling
+7. **Return to waiting** - After signaling, go back to waiting for next RUN_QA
+8. **Use the mailbox** - Never use tmux send-keys directly
 
 ---
 
 ## Start Now
 
-1. Start polling `.claude/qa-inbox.md` for RUN_QA signal
-2. When received → run tests → write report → signal supervisor
+1. Wait for RUN_QA signal (delivered via tmux from the mailbox router)
+2. When received -> run tests -> write timestamped report -> signal supervisor
 3. Return to waiting for next RUN_QA

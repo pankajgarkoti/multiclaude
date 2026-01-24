@@ -72,6 +72,61 @@ print_separator() {
 }
 
 #───────────────────────────────────────────────────────────────────────────────
+# Mailbox Router
+#───────────────────────────────────────────────────────────────────────────────
+
+watch_mailbox() {
+    local mailbox="$PROJECT_PATH/.claude/mailbox"
+    local processed_count=0
+
+    while true; do
+        if [[ -f "$mailbox" ]]; then
+            # Count messages by counting "--- MESSAGE ---" markers
+            local msg_count=$(grep -c "^--- MESSAGE ---$" "$mailbox" 2>/dev/null || echo 0)
+
+            if [[ $msg_count -gt $processed_count ]]; then
+                # Process new messages using awk
+                awk -v start=$((processed_count + 1)) '
+                    BEGIN { msg_num=0; in_msg=0; in_body=0; from=""; to=""; body="" }
+                    /^--- MESSAGE ---$/ {
+                        if (in_body && msg_num >= start && to != "") {
+                            gsub(/\n$/, "", body)
+                            print from "|" to "|" body
+                        }
+                        msg_num++
+                        in_msg=1
+                        in_body=0
+                        from=""
+                        to=""
+                        body=""
+                        next
+                    }
+                    in_msg && /^timestamp:/ { next }
+                    in_msg && /^from:/ { from=$2; next }
+                    in_msg && /^to:/ { to=$2; in_body=1; next }
+                    in_body { body = body $0 "\n" }
+                    END {
+                        if (in_body && msg_num >= start && to != "") {
+                            gsub(/\n$/, "", body)
+                            print from "|" to "|" body
+                        }
+                    }
+                ' "$mailbox" | while IFS='|' read -r from to body; do
+                    if [[ -n "$to" && -n "$body" ]]; then
+                        # Route message via tmux
+                        tmux send-keys -t "$SESSION_NAME:$to" "$body" Enter Enter
+                        log_step "Routed: $from -> $to"
+                    fi
+                done
+
+                processed_count=$msg_count
+            fi
+        fi
+        sleep 2
+    done
+}
+
+#───────────────────────────────────────────────────────────────────────────────
 # Feature Discovery
 #───────────────────────────────────────────────────────────────────────────────
 
@@ -158,6 +213,14 @@ install_templates() {
     log_step "Installing agent templates..."
 
     mkdir -p "$PROJECT_PATH/.claude"
+    mkdir -p "$PROJECT_PATH/.claude/qa-reports"
+    mkdir -p "$PROJECT_PATH/.claude/fix-tasks"
+
+    # Initialize central mailbox
+    if [[ ! -f "$PROJECT_PATH/.claude/mailbox" ]]; then
+        touch "$PROJECT_PATH/.claude/mailbox"
+        printf "  ${GREEN}✓${NC} mailbox (central message bus)\n"
+    fi
 
     # Supervisor template
     if [[ -f "$SCRIPT_DIR/templates/SUPERVISOR.md" ]]; then
@@ -171,16 +234,11 @@ install_templates() {
         printf "  ${GREEN}✓${NC} QA_INSTRUCTIONS.md\n"
     fi
 
-    # Initialize inboxes
-    [[ ! -f "$PROJECT_PATH/.claude/supervisor-inbox.md" ]] && echo "# Supervisor Inbox" > "$PROJECT_PATH/.claude/supervisor-inbox.md"
-    [[ ! -f "$PROJECT_PATH/.claude/qa-inbox.md" ]] && echo "# QA Inbox - Waiting for RUN_QA signal" > "$PROJECT_PATH/.claude/qa-inbox.md"
-
     # Worker templates
     if [[ -f "$SCRIPT_DIR/templates/WORKER.md" ]]; then
         for worktree in "$PROJECT_PATH"/worktrees/feature-*; do
             if [[ -d "$worktree" ]]; then
                 cp "$SCRIPT_DIR/templates/WORKER.md" "$worktree/.claude/WORKER.md"
-                [[ ! -f "$worktree/.claude/inbox.md" ]] && echo "# Worker Inbox" > "$worktree/.claude/inbox.md"
             fi
         done
         printf "  ${GREEN}✓${NC} WORKER.md (all worktrees)\n"
@@ -213,7 +271,7 @@ launch_agents() {
     tmux new-window -t "$SESSION_NAME" -n "supervisor" \
         "cd '$PROJECT_PATH' && claude --dangerously-skip-permissions"
 
-    local supervisor_prompt="You are the SUPERVISOR AGENT. Read .claude/SUPERVISOR.md for your complete instructions. You coordinate all workers and the QA agent via file-based message passing. Start by reading your instructions, then monitor worker status logs at worktrees/feature-*/.claude/status.log"
+    local supervisor_prompt="You are the SUPERVISOR AGENT. Read .claude/SUPERVISOR.md for your complete instructions. You coordinate all workers and the QA agent via the central mailbox at .claude/mailbox. Start by reading your instructions, then monitor worker status logs at worktrees/feature-*/.claude/status.log"
 
     sleep 2
     tmux send-keys -t "$SESSION_NAME:supervisor" "$supervisor_prompt"
@@ -231,7 +289,7 @@ launch_agents() {
     tmux new-window -t "$SESSION_NAME" -n "qa" \
         "cd '$PROJECT_PATH' && claude --dangerously-skip-permissions"
 
-    local qa_prompt="You are the QA AGENT. Read .claude/QA_INSTRUCTIONS.md for your complete instructions. You MUST WAIT for a RUN_QA signal in .claude/qa-inbox.md before running any tests. Start by reading your instructions, then poll your inbox."
+    local qa_prompt="You are the QA AGENT. Read .claude/QA_INSTRUCTIONS.md for your complete instructions. You MUST WAIT for a RUN_QA signal (delivered via tmux from the mailbox router) before running any tests. Start by reading your instructions, then wait for messages."
 
     sleep 2
     tmux send-keys -t "$SESSION_NAME:qa" "$qa_prompt"
@@ -251,9 +309,9 @@ launch_agents() {
             printf "  Creating window $window_num: ${CYAN}$feature${NC} (worker)..."
 
             tmux new-window -t "$SESSION_NAME" -n "$feature" \
-                "cd '$worktree' && claude --dangerously-skip-permissions"
+                "cd '$worktree' && MAIN_REPO='$PROJECT_PATH' FEATURE='$feature' claude --dangerously-skip-permissions"
 
-            local worker_prompt="You are a WORKER AGENT implementing the '$feature' feature. Read .claude/WORKER.md for your complete instructions. Your feature spec is in .claude/FEATURE_SPEC.md. Log your status to .claude/status.log. Check .claude/inbox.md periodically for commands. Start by reading your instructions."
+            local worker_prompt="You are a WORKER AGENT implementing the '$feature' feature. Read .claude/WORKER.md for your complete instructions. Your feature spec is in .claude/FEATURE_SPEC.md. Log your status to .claude/status.log. Use the central mailbox at \$MAIN_REPO/.claude/mailbox for communication. Start by reading your instructions."
 
             sleep 2
             tmux send-keys -t "$SESSION_NAME:$feature" "$worker_prompt"
@@ -269,6 +327,12 @@ launch_agents() {
 
     echo ""
     log_success "All agents launched!"
+
+    # Start mailbox watcher in background
+    log_step "Starting mailbox router..."
+    watch_mailbox &
+    MAILBOX_PID=$!
+    printf "  ${GREEN}✓${NC} Mailbox router (PID: $MAILBOX_PID)\n"
 }
 
 #───────────────────────────────────────────────────────────────────────────────
@@ -332,7 +396,7 @@ show_help() {
     echo "  s, status     Show current status"
     echo "  w, watch      Watch status (auto-refresh)"
     echo "  l, logs       Tail worker status logs"
-    echo "  m, messages   Tail message files"
+    echo "  m, messages   Tail central mailbox"
     echo "  h, help       Show this help"
     echo "  q, quit       Exit monitor (agents keep running)"
     echo ""
@@ -372,7 +436,7 @@ interactive_loop() {
                 tail -f "$PROJECT_PATH"/worktrees/feature-*/.claude/status.log
                 ;;
             m|messages)
-                tail -f "$PROJECT_PATH"/.claude/*.md "$PROJECT_PATH"/worktrees/feature-*/.claude/inbox.md 2>/dev/null
+                tail -f "$PROJECT_PATH"/.claude/mailbox 2>/dev/null
                 ;;
             h|help|"?")
                 show_help

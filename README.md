@@ -21,7 +21,7 @@ multiclaude new my-app
 ```
 
 This creates the project and launches a tmux session with:
-- **Window 0:** Monitor (control center)
+- **Window 0:** Monitor (control center + mailbox router)
 - **Window 1:** Supervisor (coordinates everything)
 - **Window 2:** QA (runs tests when signaled)
 - **Window 3+:** Workers (one per feature)
@@ -69,36 +69,86 @@ Ctrl+b d    Detach (agents keep running)
 my-project/
 ├── .claude/
 │   ├── settings.json          # Claude permissions
-│   ├── supervisor-inbox.md    # Messages to supervisor
-│   ├── qa-inbox.md            # Messages to QA
-│   └── SUPERVISOR.md          # Supervisor instructions
+│   ├── mailbox                 # Central message bus
+│   ├── qa-reports/             # Timestamped QA reports
+│   │   ├── qa-report-2024-01-24T100000.json
+│   │   ├── qa-report-2024-01-24T103000.json
+│   │   └── latest.json         # Symlink to most recent
+│   ├── fix-tasks/              # Timestamped fix task assignments
+│   ├── SUPERVISOR.md           # Supervisor instructions
+│   └── QA_INSTRUCTIONS.md      # QA instructions
 ├── specs/
-│   ├── PROJECT_SPEC.md        # Architecture spec
-│   ├── STANDARDS.md           # Quality standards
-│   ├── .features              # Feature list (one per line)
+│   ├── PROJECT_SPEC.md         # Architecture spec
+│   ├── STANDARDS.md            # Quality standards
+│   ├── .features               # Feature list (one per line)
 │   └── features/
-│       └── *.spec.md          # Individual feature specs
+│       └── *.spec.md           # Individual feature specs
 ├── worktrees/
-│   └── feature-*/             # Isolated worktrees per feature
+│   └── feature-*/              # Isolated worktrees per feature
 │       └── .claude/
-│           ├── inbox.md       # Commands from supervisor
-│           ├── status.log     # Worker status updates
-│           └── WORKER.md      # Worker instructions
-└── src/                       # Source code
+│           ├── status.log      # Worker status updates
+│           ├── WORKER.md       # Worker instructions
+│           └── FEATURE_SPEC.md # Feature specification
+└── src/                        # Source code
 ```
 
 ## Agent Communication
 
-Agents communicate via file-based message passing:
+Agents communicate via a **central mailbox** (`.claude/mailbox`).
 
-| From | To | File |
-|------|-----|------|
-| Worker | Supervisor | `worktrees/feature-*/.claude/status.log` |
-| Supervisor | Worker | `worktrees/feature-*/.claude/inbox.md` |
-| Supervisor | QA | `.claude/qa-inbox.md` |
-| QA | Supervisor | `.claude/qa-report.json` |
+### Message Format
 
-### Status Codes (Worker → Supervisor)
+```
+--- MESSAGE ---
+timestamp: 2024-01-24T10:00:00+00:00
+from: supervisor
+to: qa
+Your message here.
+Can be multiple lines.
+```
+
+The monitor script watches the mailbox and routes messages to the appropriate agent via tmux.
+
+### Message Flow
+
+```
++---------------------------------------------------------------------+
+|                         MESSAGE FLOW                                 |
+|                                                                     |
+|   +----------+     writes      +---------------+                    |
+|   |  Agent   | --------------> |   MAILBOX     |                    |
+|   |  (any)   |                 | .claude/mailbox|                   |
+|   +----------+                 +-------+-------+                    |
+|                                        |                            |
+|                                        | watches                    |
+|                                        v                            |
+|                                +---------------+                    |
+|                                |   MONITOR     |                    |
+|                                |  (routes)     |                    |
+|                                +-------+-------+                    |
+|                                        |                            |
+|                         parses [from -> to]                         |
+|                                        |                            |
+|                    +-------------------+-------------------+        |
+|                    v                   v                   v        |
+|             tmux send-keys      tmux send-keys      tmux send-keys  |
+|                -t qa           -t supervisor         -t <feature>   |
+|                                                                     |
++---------------------------------------------------------------------+
+```
+
+### Message Types
+
+| Message | From | To | Purpose |
+|---------|------|-----|---------|
+| `RUN_QA` | supervisor | qa | Signal QA to start testing |
+| `QA_RESULT: PASS/FAIL` | qa | supervisor | Report test results |
+| `FIX_TASK` | supervisor | worker | Assign fix work after QA failure |
+| `WORKER_COMPLETE` | worker | supervisor | Worker finished (optional) |
+
+### Status Codes (Worker -> Supervisor)
+
+Workers communicate status via `.claude/status.log` (polled by supervisor):
 
 ```
 PENDING      Not started
@@ -108,6 +158,15 @@ TESTING      Running tests
 COMPLETE     Done, merge ready
 FAILED       Error
 ```
+
+## QA Reports
+
+QA reports are timestamped and stored in `.claude/qa-reports/`:
+
+- **Format:** `qa-report-YYYY-MM-DDTHHMMSS.json`
+- **Latest:** `.claude/qa-reports/latest.json` (symlink)
+
+This preserves history across multiple QA runs.
 
 ## Troubleshooting
 
@@ -124,6 +183,16 @@ tmux kill-session -t claude-myproject # Kill stuck session
 ```bash
 git worktree prune
 rm -rf worktrees/feature-<name>
+```
+
+### Mailbox Issues
+
+```bash
+# View recent messages
+tail -50 .claude/mailbox
+
+# Check mailbox router is running (in monitor window)
+ps aux | grep watch_mailbox
 ```
 
 ## License
