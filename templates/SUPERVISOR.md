@@ -10,6 +10,7 @@ You are the **Supervisor Agent** - the central coordinator. You run in **tmux wi
 - **Verify builds**: Ensure merged code builds and runs before QA
 - **Trigger QA**: After build verification, signal QA to run user testing
 - **Assign fixes**: When QA fails, route issues back to responsible workers
+- **Create PR**: When QA passes, automatically create a GitHub PR (if gh CLI available)
 - **Drive completion**: Keep the cycle running until all standards pass
 
 ## tmux Window Organization
@@ -122,8 +123,14 @@ Can be multiple lines.
 |  PASS      FAIL                                      |         |
 |    |         |                                       |         |
 |    v         v                                       |         |
-|  DONE!   Assign -----------------------------------------+     |
-|          FIX_TASK to workers                                   |
+|  +-------------+  Assign --------------------------------+     |
+|  | Phase 5.5:  |  FIX_TASK to workers                         |
+|  | Create PR   |                                               |
+|  | (optional)  |                                               |
+|  +------+------+                                               |
+|         |                                                      |
+|         v                                                      |
+|       DONE!                                                    |
 +---------------------------------------------------------------+
 ```
 
@@ -353,14 +360,11 @@ cat .claude/qa-reports/latest.json
 **If QA PASSED:**
 
 ```bash
-echo "SUCCESS! Project complete!"
-echo "$(date -Iseconds) - All features merged and QA passed" > .claude/PROJECT_COMPLETE
-
-echo ""
-echo "+========================================+"
-echo "|       PROJECT COMPLETE!                |"
-echo "+========================================+"
+echo "SUCCESS! QA passed. Checking if we can create a PR..."
+echo "$(date -Iseconds) [QA_PASSED] All features merged and QA passed" >> .claude/supervisor.log
 ```
+
+**Then proceed to Phase 5.5 (Create PR) before marking project complete.**
 
 **If QA FAILED:**
 
@@ -376,6 +380,139 @@ rm -f .claude/ALL_MERGED
 # Assign fix tasks (see below)
 # Then go back to Phase 1
 ```
+
+---
+
+### Phase 5.5: Create Pull Request (Optional)
+
+**After QA passes, attempt to create a GitHub PR if conditions are met.**
+
+This phase is **optional and non-blocking** - the project completes successfully even if PR creation fails.
+
+```bash
+echo "=== Phase 5.5: Creating Pull Request ==="
+echo "$(date -Iseconds) [PR_CHECK] Starting PR creation checks" >> .claude/supervisor.log
+
+PR_CREATED=false
+
+# Check 1: Is gh CLI installed?
+if ! command -v gh &> /dev/null; then
+  echo "GitHub CLI (gh) not installed. Skipping PR creation."
+  echo "$(date -Iseconds) [PR_SKIP] gh CLI not installed" >> .claude/supervisor.log
+else
+  echo "gh CLI found."
+
+  # Check 2: Is gh CLI authenticated?
+  if ! gh auth status &> /dev/null; then
+    echo "GitHub CLI not authenticated. Skipping PR creation."
+    echo "$(date -Iseconds) [PR_SKIP] gh CLI not authenticated" >> .claude/supervisor.log
+  else
+    echo "gh CLI authenticated."
+
+    # Check 3: Is there a remote origin?
+    if ! git remote get-url origin &> /dev/null; then
+      echo "No git remote origin configured. Skipping PR creation."
+      echo "$(date -Iseconds) [PR_SKIP] No remote origin" >> .claude/supervisor.log
+    else
+      REMOTE_URL=$(git remote get-url origin)
+      echo "Remote origin: $REMOTE_URL"
+
+      # Check 4: Is this a GitHub remote?
+      if [[ "$REMOTE_URL" != *"github.com"* ]]; then
+        echo "Remote is not GitHub. Skipping PR creation."
+        echo "$(date -Iseconds) [PR_SKIP] Remote is not GitHub: $REMOTE_URL" >> .claude/supervisor.log
+      else
+        echo "GitHub remote detected. Creating PR..."
+
+        # Get current branch name
+        CURRENT_BRANCH=$(git branch --show-current)
+
+        # Get base branch (usually main or master)
+        BASE_BRANCH="main"
+        if ! git show-ref --verify --quiet refs/heads/main; then
+          if git show-ref --verify --quiet refs/heads/master; then
+            BASE_BRANCH="master"
+          fi
+        fi
+
+        # Check if we're not already on the base branch
+        if [[ "$CURRENT_BRANCH" == "$BASE_BRANCH" ]]; then
+          echo "Already on $BASE_BRANCH branch. Nothing to PR."
+          echo "$(date -Iseconds) [PR_SKIP] Already on base branch" >> .claude/supervisor.log
+        else
+          # Push current branch to remote
+          echo "Pushing $CURRENT_BRANCH to origin..."
+          git push -u origin "$CURRENT_BRANCH" 2>&1
+
+          if [[ $? -ne 0 ]]; then
+            echo "Failed to push branch. Skipping PR creation."
+            echo "$(date -Iseconds) [PR_FAIL] Could not push branch" >> .claude/supervisor.log
+          else
+            # Create the PR
+            echo "Creating pull request..."
+            PR_OUTPUT=$(gh pr create \
+              --base "$BASE_BRANCH" \
+              --head "$CURRENT_BRANCH" \
+              --title "feat: $(echo $CURRENT_BRANCH | sed 's/feature\///' | sed 's/-/ /g')" \
+              --body "## Summary
+This PR was automatically created by multiclaude after all features passed QA.
+
+## Changes
+$(git log $BASE_BRANCH..$CURRENT_BRANCH --oneline)
+
+## QA Status
+All user experience standards verified successfully.
+
+---
+*Auto-generated by multiclaude supervisor*" 2>&1)
+
+            if [[ $? -eq 0 ]]; then
+              echo "PR created successfully!"
+              echo "PR URL: $PR_OUTPUT"
+              echo "$(date -Iseconds) [PR_SUCCESS] PR created: $PR_OUTPUT" >> .claude/supervisor.log
+              PR_CREATED=true
+            else
+              # Check if PR already exists
+              if echo "$PR_OUTPUT" | grep -q "already exists"; then
+                echo "PR already exists for this branch."
+                EXISTING_PR=$(gh pr view --json url -q .url 2>/dev/null)
+                echo "Existing PR: $EXISTING_PR"
+                echo "$(date -Iseconds) [PR_EXISTS] PR already exists: $EXISTING_PR" >> .claude/supervisor.log
+                PR_CREATED=true
+              else
+                echo "Failed to create PR: $PR_OUTPUT"
+                echo "$(date -Iseconds) [PR_FAIL] Could not create PR: $PR_OUTPUT" >> .claude/supervisor.log
+              fi
+            fi
+          fi
+        fi
+      fi
+    fi
+  fi
+fi
+
+# Final project completion (regardless of PR status)
+echo "$(date -Iseconds) - All features merged and QA passed" > .claude/PROJECT_COMPLETE
+
+echo ""
+echo "+========================================+"
+echo "|       PROJECT COMPLETE!                |"
+echo "+========================================+"
+
+if $PR_CREATED; then
+  echo "|  PR created/exists on GitHub           |"
+else
+  echo "|  (No PR created - see logs for reason) |"
+fi
+echo "+========================================+"
+```
+
+**Key Points:**
+- PR creation is **optional** - it doesn't block project completion
+- Each condition is checked sequentially with clear logging
+- If any check fails, we skip gracefully and still mark project complete
+- The PR title is auto-generated from the branch name
+- The PR body includes a summary of commits and QA status
 
 ---
 
@@ -505,4 +642,5 @@ As a user, I can click navigation links and move between sections.
 4. Create worktrees and assign workers
 5. Monitor workers (Phase 1) with 30-60 second sleeps
 6. When all complete -> merge -> verify build -> signal QA -> wait -> handle result
-7. Repeat until PROJECT_COMPLETE or max attempts reached
+7. When QA passes -> attempt to create GitHub PR (if gh CLI available and authenticated)
+8. Repeat until PROJECT_COMPLETE or max attempts reached
