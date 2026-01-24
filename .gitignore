@@ -1,0 +1,6 @@
+# Multiclaude worktrees
+worktrees/
+
+# Generated when using multiclaude on itself
+specs/
+.claude/

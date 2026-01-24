@@ -33,7 +33,7 @@ if [[ -n "$TMUX" ]]; then
     current_session=$(tmux display-message -p '#S')
     if [[ "$current_session" == "$SESSION_NAME" ]]; then
         # We're inside the monitor pane - run the orchestration
-        exec "$SCRIPT_DIR/monitor.sh" "$PROJECT_PATH"
+        exec AUTO_PR="$AUTO_PR" "$SCRIPT_DIR/monitor.sh" "$PROJECT_PATH"
     else
         # We're in a different tmux session
         printf "${YELLOW}Already inside tmux session '$current_session'${NC}\n"
@@ -56,7 +56,7 @@ if [[ -n "$TMUX" ]]; then
 
             # Create session in background and switch
             tmux new-session -d -s "$SESSION_NAME" -n "monitor" \
-                "cd '$PROJECT_PATH' && '$SCRIPT_DIR/monitor.sh' '$PROJECT_PATH'"
+                "cd '$PROJECT_PATH' && AUTO_PR='$AUTO_PR' '$SCRIPT_DIR/monitor.sh' '$PROJECT_PATH'"
             exec tmux switch-client -t "$SESSION_NAME"
         fi
     fi
@@ -122,7 +122,7 @@ fi
 printf "${BOLD}Creating tmux session...${NC}\n"
 
 tmux new-session -d -s "$SESSION_NAME" -n "monitor" \
-    "cd '$PROJECT_PATH' && '$SCRIPT_DIR/loop.sh' '$PROJECT_PATH'"
+    "cd '$PROJECT_PATH' && AUTO_PR='$AUTO_PR' '$SCRIPT_DIR/loop.sh' '$PROJECT_PATH'"
 
 # Attach to the session
 printf "${GREEN}Attaching to session...${NC}\n"

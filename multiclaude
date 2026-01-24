@@ -23,42 +23,81 @@ print_banner() {
 
 print_usage() {
     printf "${BOLD}Usage:${NC}\n"
-    printf "  ${CYAN}multiclaude new <name>${NC}      Create new project\n"
-    printf "  ${CYAN}multiclaude run [path]${NC}      Launch agent session\n"
-    printf "  ${CYAN}multiclaude status [path]${NC}   Show agent status\n"
-    printf "  ${CYAN}multiclaude attach [path]${NC}   Attach to session\n"
-    printf "  ${CYAN}multiclaude monitor [path]${NC}  Restart monitor in session\n"
-    printf "  ${CYAN}multiclaude add <feature>${NC}   Add feature to project\n"
+    printf "  ${CYAN}multiclaude new [name]${NC}              Create new project (interactive)\n"
+    printf "  ${CYAN}multiclaude new -f <brief.txt>${NC}      Create project from brief file\n"
+    printf "  ${CYAN}multiclaude add <feature>${NC}           Add feature to current project\n"
+    printf "  ${CYAN}multiclaude add -f <brief.txt>${NC}      Add feature from brief file\n"
+    printf "  ${CYAN}multiclaude run [path] [--auto-pr]${NC}  Launch agent session\n"
+    printf "  ${CYAN}multiclaude status [path]${NC}           Show worker/project status\n"
+    printf "  ${CYAN}multiclaude attach [path]${NC}           Attach to tmux session\n"
+    printf "  ${CYAN}multiclaude monitor [path]${NC}          Restart dashboard in session\n"
     echo ""
-    printf "${DIM}Options: -h help, -v version, install${NC}\n"
+    printf "${BOLD}Options:${NC}\n"
+    printf "  ${DIM}--auto-pr${NC}    Create GitHub PR when QA passes (requires gh CLI)\n"
+    printf "  ${DIM}-f, --from-file${NC}  Read project/feature details from file\n"
+    printf "  ${DIM}-h, --help${NC}   Show this help\n"
+    printf "  ${DIM}-v, --version${NC} Show version\n"
 }
 
 cmd_new() {
-    local name="$1"
-    shift || true
+    local name=""
+    local from_file=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --from-file|-f)
+                from_file="$2"
+                shift 2
+                ;;
+            *)
+                [[ -z "$name" ]] && name="$1"
+                shift
+                ;;
+        esac
+    done
 
     print_banner
 
-    if [[ -z "$name" ]]; then
-        printf "${YELLOW}Project name:${NC} "
-        read -r name
+    if [[ -n "$from_file" ]]; then
+        # Non-interactive mode
+        "$SCRIPT_DIR/bootstrap.sh" --from-file "$from_file"
+    else
+        # Interactive mode (existing)
+        if [[ -z "$name" ]]; then
+            printf "${YELLOW}Project name:${NC} "
+            read -r name
+        fi
+
+        if [[ -z "$name" ]]; then
+            printf "${RED}Error: Project name required${NC}\n"
+            exit 1
+        fi
+
+        printf "${BOLD}Creating project: ${name}${NC}\n"
+        echo ""
+
+        # Run bootstrap with project name pre-filled
+        "$SCRIPT_DIR/bootstrap.sh" --name "$name"
     fi
-
-    if [[ -z "$name" ]]; then
-        printf "${RED}Error: Project name required${NC}\n"
-        exit 1
-    fi
-
-    printf "${BOLD}Creating project: ${name}${NC}\n"
-    echo ""
-
-    # Run bootstrap with project name pre-filled
-    "$SCRIPT_DIR/bootstrap.sh" --name "$name" "$@"
 }
 
 cmd_run() {
-    local path="${1:-.}"
-    shift || true
+    local path="."
+    local auto_pr=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --auto-pr)
+                auto_pr="true"
+                shift
+                ;;
+            *)
+                path="$1"
+                shift
+                ;;
+        esac
+    done
 
     print_banner
 
@@ -69,7 +108,7 @@ cmd_run() {
         exit 1
     fi
 
-    "$SCRIPT_DIR/loop.sh" "$path" "$@"
+    AUTO_PR="$auto_pr" "$SCRIPT_DIR/loop.sh" "$path"
 }
 
 cmd_attach() {
@@ -97,16 +136,34 @@ cmd_attach() {
 }
 
 cmd_add() {
-    local feature="$1"
-    shift || true
+    local feature=""
+    local from_file=""
 
-    if [[ -z "$feature" ]]; then
-        printf "${RED}Error: Feature name required${NC}\n"
-        echo "Usage: multiclaude add <feature-name> [--description \"...\"]"
-        exit 1
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --from-file|-f)
+                from_file="$2"
+                shift 2
+                ;;
+            *)
+                [[ -z "$feature" ]] && feature="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -n "$from_file" ]]; then
+        "$SCRIPT_DIR/feature.sh" "." --from-file "$from_file"
+    else
+        # Existing interactive behavior
+        if [[ -z "$feature" ]]; then
+            printf "${RED}Error: Feature name required${NC}\n"
+            echo "Usage: multiclaude add <feature-name>"
+            echo "       multiclaude add --from-file <brief.txt>"
+            exit 1
+        fi
+        "$SCRIPT_DIR/feature.sh" "." "$feature"
     fi
-
-    "$SCRIPT_DIR/feature.sh" "." "$feature" "$@"
 }
 
 cmd_status() {

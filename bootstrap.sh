@@ -1360,14 +1360,182 @@ extract_features_from_plan() {
     fi
 }
 
+run_noninteractive() {
+    local brief_file="$1"
+
+    if [[ ! -f "$brief_file" ]]; then
+        log_error "File not found: $brief_file"
+        exit 1
+    fi
+
+    # Convert to absolute path
+    brief_file="$(cd "$(dirname "$brief_file")" && pwd)/$(basename "$brief_file")"
+
+    # Derive project name from brief filename
+    local project_name
+    project_name=$(basename "$brief_file" .txt | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+
+    local project_dir="$(pwd)/$project_name"
+
+    log_info "Creating project directory: $project_dir"
+
+    # Create minimal structure
+    mkdir -p "$project_dir/.claude"
+    mkdir -p "$project_dir/specs/features"
+
+    # Copy the brief file - Claude will read this
+    cp "$brief_file" "$project_dir/.claude/project-brief.txt"
+
+    # Create CLAUDE.md with instructions for the unified setup phase
+    cat > "$project_dir/CLAUDE.md" << 'SETUP_EOF'
+# Non-Interactive Project Setup
+
+You are setting up a new project from a brief file. Run all phases sequentially.
+
+## Your Brief
+Read `.claude/project-brief.txt` for the project requirements.
+
+## Phase 1: RESEARCH
+1. Analyze the brief to understand what's being built
+2. Search for 2-3 similar products and analyze them
+3. Document findings in `.claude/research-findings.md`
+
+## Phase 2: PLANNING
+1. Create `specs/PROJECT_SPEC.md` with full architecture
+2. Break down into 3-7 feature modules
+3. Create `specs/features/<name>.spec.md` for each feature
+4. Create `specs/.features` with feature names (one per line)
+
+## Phase 3: STANDARDS
+1. Create `specs/STANDARDS.md` with quality standards
+2. Include testing, UI, security, and code quality standards
+
+## When Done
+Say "SETUP_COMPLETE" and list the files you created.
+SETUP_EOF
+
+    # Create .gitignore
+    cat > "$project_dir/.gitignore" << 'EOF'
+# Worktrees (managed separately)
+worktrees/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+vendor/
+venv/
+__pycache__/
+
+# Build outputs
+dist/
+build/
+*.o
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+!specs/**/*.log
+
+# Claude working files (keep status logs)
+.claude/cache/
+.claude/tmp/
+EOF
+
+    # Create MCP config
+    cat > "$project_dir/.claude/settings.json" << 'EOF'
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
+      "Bash(git:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Read",
+      "Write",
+      "Edit"
+    ],
+    "deny": []
+  }
+}
+EOF
+
+    cat > "$project_dir/.mcp.json" << 'EOF'
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "env": {},
+      "disabled": false
+    },
+    "browseruse": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/browseruse-mcp@latest"],
+      "env": {
+        "BROWSERUSE_HEADLESS": "true"
+      },
+      "disabled": false
+    }
+  }
+}
+EOF
+
+    # Initialize git
+    cd "$project_dir"
+    git init -q
+    git checkout -q -b main
+
+    # Create tmux session
+    local session_name="claude-${project_name}-setup"
+
+    log_info "Starting setup session: $session_name"
+
+    tmux new-session -d -s "$session_name" -n "setup" \
+        "cd '$project_dir' && claude 'Read CLAUDE.md and .claude/project-brief.txt. Complete all setup phases. Say SETUP_COMPLETE when done.' --dangerously-skip-permissions; \
+         echo ''; echo 'Setup complete. Press Enter to finalize...'; read; \
+         git add -A && git commit -m 'Initial scaffold from brief'; \
+         echo 'Project ready! Run: multiclaude run $project_dir'; \
+         echo 'Press Enter to close session...'; read"
+
+    log_success "Setup session created: $session_name"
+    echo ""
+    echo "Claude will read the brief and run: research -> planning -> standards"
+    echo ""
+    echo "Attach: tmux attach -t $session_name"
+    echo "Kill:   tmux kill-session -t $session_name"
+}
+
 main() {
     # Parse command line arguments
     local arg_name=""
     local arg_dir=""
     local arg_desc=""
+    local arg_from_file=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --from-file|-f)
+                arg_from_file="$2"
+                shift 2
+                ;;
             --name)
                 arg_name="$2"
                 shift 2
@@ -1392,6 +1560,12 @@ main() {
                 ;;
         esac
     done
+
+    # Non-interactive mode - run in tmux
+    if [[ -n "$arg_from_file" ]]; then
+        run_noninteractive "$arg_from_file"
+        exit 0
+    fi
 
     print_banner
 
