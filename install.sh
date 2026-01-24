@@ -202,97 +202,101 @@ check_and_install_dependencies() {
     printf "${BOLD}Checking dependencies...${NC}\n"
     echo ""
 
-    local failed=()
+    local failed=""
 
-    # Define required tools
-    declare -A REQUIRED_TOOLS=(
-        ["git"]="git"
-        ["tmux"]="tmux"
-        ["claude"]="claude"
-    )
+    # Required tools: git, tmux, claude
+    # Check and install each one
 
-    # Define optional tools
-    declare -A OPTIONAL_TOOLS=(
-        ["jq"]="jq"
-    )
-
-    # Check and install required tools
-    for tool in "${!REQUIRED_TOOLS[@]}"; do
-        local package="${REQUIRED_TOOLS[$tool]}"
-
-        if command -v "$tool" &>/dev/null; then
-            printf "  ${GREEN}✓${NC} $tool\n"
-        else
-            printf "  ${YELLOW}!${NC} $tool not found\n"
-
-            # Attempt installation
-            if [[ "$tool" == "claude" ]]; then
-                if ! install_claude_cli; then
-                    failed+=("$tool")
-                fi
+    # --- git ---
+    if command -v git &>/dev/null; then
+        printf "  ${GREEN}✓${NC} git\n"
+    else
+        printf "  ${YELLOW}!${NC} git not found\n"
+        if install_tool "git" "git"; then
+            if command -v git &>/dev/null; then
+                printf "  ${GREEN}✓${NC} git installed successfully\n"
             else
-                if ! install_tool "$tool" "$package"; then
-                    failed+=("$tool")
-                fi
+                failed="$failed git"
             fi
-
-            # Verify installation
-            if command -v "$tool" &>/dev/null; then
-                printf "  ${GREEN}✓${NC} $tool installed successfully\n"
-            fi
+        else
+            failed="$failed git"
         fi
-    done
+    fi
+
+    # --- tmux ---
+    if command -v tmux &>/dev/null; then
+        printf "  ${GREEN}✓${NC} tmux\n"
+    else
+        printf "  ${YELLOW}!${NC} tmux not found\n"
+        if install_tool "tmux" "tmux"; then
+            if command -v tmux &>/dev/null; then
+                printf "  ${GREEN}✓${NC} tmux installed successfully\n"
+            else
+                failed="$failed tmux"
+            fi
+        else
+            failed="$failed tmux"
+        fi
+    fi
+
+    # --- claude ---
+    if command -v claude &>/dev/null; then
+        printf "  ${GREEN}✓${NC} claude\n"
+    else
+        printf "  ${YELLOW}!${NC} claude not found\n"
+        if install_claude_cli; then
+            if command -v claude &>/dev/null; then
+                printf "  ${GREEN}✓${NC} claude installed successfully\n"
+            else
+                failed="$failed claude"
+            fi
+        else
+            failed="$failed claude"
+        fi
+    fi
 
     echo ""
 
     # Check and install optional tools
     printf "${BOLD}Checking optional dependencies...${NC}\n"
-    for tool in "${!OPTIONAL_TOOLS[@]}"; do
-        local package="${OPTIONAL_TOOLS[$tool]}"
 
-        if command -v "$tool" &>/dev/null; then
-            printf "  ${GREEN}✓${NC} $tool\n"
+    # --- jq ---
+    if command -v jq &>/dev/null; then
+        printf "  ${GREEN}✓${NC} jq\n"
+    else
+        printf "  ${YELLOW}!${NC} jq not found (optional)\n"
+        if install_tool "jq" "jq"; then
+            printf "  ${GREEN}✓${NC} jq installed\n"
         else
-            printf "  ${YELLOW}!${NC} $tool not found (optional)\n"
-
-            # Attempt installation
-            if install_tool "$tool" "$package"; then
-                printf "  ${GREEN}✓${NC} $tool installed\n"
-            else
-                printf "  ${YELLOW}!${NC} $tool installation failed (continuing anyway)\n"
-            fi
+            printf "  ${YELLOW}!${NC} jq installation failed (continuing anyway)\n"
         fi
-    done
+    fi
 
     echo ""
 
     # Check if any required tools failed
-    if [[ ${#failed[@]} -gt 0 ]]; then
+    if [[ -n "$failed" ]]; then
         printf "${RED}═══════════════════════════════════════════════════════════════${NC}\n"
         printf "${RED}  INSTALLATION FAILED${NC}\n"
         printf "${RED}═══════════════════════════════════════════════════════════════${NC}\n"
         echo ""
-        printf "  Could not install required tools: ${RED}${failed[*]}${NC}\n"
+        printf "  Could not install required tools:${RED}$failed${NC}\n"
         echo ""
         printf "  Please install manually:\n"
-        for dep in "${failed[@]}"; do
-            case "$dep" in
-                git)
-                    printf "    git:   ${CYAN}brew install git${NC} (macOS)\n"
-                    printf "           ${CYAN}sudo apt install git${NC} (Debian/Ubuntu)\n"
-                    printf "           ${CYAN}sudo dnf install git${NC} (Fedora/RHEL)\n"
-                    ;;
-                tmux)
-                    printf "    tmux:  ${CYAN}brew install tmux${NC} (macOS)\n"
-                    printf "           ${CYAN}sudo apt install tmux${NC} (Debian/Ubuntu)\n"
-                    printf "           ${CYAN}sudo dnf install tmux${NC} (Fedora/RHEL)\n"
-                    ;;
-                claude)
-                    printf "    claude: ${CYAN}npm install -g @anthropic-ai/claude-code${NC}\n"
-                    printf "            Or visit: https://claude.ai/code\n"
-                    ;;
-            esac
-        done
+        if [[ "$failed" == *"git"* ]]; then
+            printf "    git:   ${CYAN}brew install git${NC} (macOS)\n"
+            printf "           ${CYAN}sudo apt install git${NC} (Debian/Ubuntu)\n"
+            printf "           ${CYAN}sudo dnf install git${NC} (Fedora/RHEL)\n"
+        fi
+        if [[ "$failed" == *"tmux"* ]]; then
+            printf "    tmux:  ${CYAN}brew install tmux${NC} (macOS)\n"
+            printf "           ${CYAN}sudo apt install tmux${NC} (Debian/Ubuntu)\n"
+            printf "           ${CYAN}sudo dnf install tmux${NC} (Fedora/RHEL)\n"
+        fi
+        if [[ "$failed" == *"claude"* ]]; then
+            printf "    claude: ${CYAN}npm install -g @anthropic-ai/claude-code${NC}\n"
+            printf "            Or visit: https://claude.ai/code\n"
+        fi
         echo ""
         exit 1
     fi
