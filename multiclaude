@@ -27,6 +27,7 @@ print_usage() {
     printf "  ${CYAN}multiclaude run [path]${NC}      Launch agent session\n"
     printf "  ${CYAN}multiclaude status [path]${NC}   Show agent status\n"
     printf "  ${CYAN}multiclaude attach [path]${NC}   Attach to session\n"
+    printf "  ${CYAN}multiclaude monitor [path]${NC}  Restart monitor in session\n"
     printf "  ${CYAN}multiclaude add <feature>${NC}   Add feature to project\n"
     echo ""
     printf "${DIM}Options: -h help, -v version, install${NC}\n"
@@ -219,6 +220,34 @@ cmd_status() {
     echo ""
 }
 
+cmd_monitor() {
+    local path="${1:-.}"
+
+    # Resolve absolute path
+    if [[ -d "$path" ]]; then
+        path="$(cd "$path" && pwd)"
+    else
+        printf "${RED}Error: Project path does not exist: $path${NC}\n"
+        exit 1
+    fi
+
+    local project_name="$(basename "$path")"
+    local session_name="claude-${project_name}"
+
+    if ! tmux has-session -t "$session_name" 2>/dev/null; then
+        printf "${RED}Error: No tmux session found: $session_name${NC}\n"
+        echo "Run 'multiclaude run $path' to start the agent session first."
+        exit 1
+    fi
+
+    # Run monitor script in window 0
+    printf "${CYAN}Restarting monitor in $session_name:0...${NC}\n"
+    tmux send-keys -t "$session_name:0" C-c
+    sleep 0.5
+    tmux send-keys -t "$session_name:0" "$SCRIPT_DIR/monitor.sh '$path'" Enter
+    tmux attach -t "$session_name:0"
+}
+
 cmd_install() {
     "$SCRIPT_DIR/install.sh"
 }
@@ -241,9 +270,13 @@ case "${1:-}" in
         shift
         cmd_add "$@"
         ;;
-    status|monitor|ps)
+    status|ps)
         shift
         cmd_status "$@"
+        ;;
+    monitor|mon)
+        shift
+        cmd_monitor "$@"
         ;;
     install)
         cmd_install
