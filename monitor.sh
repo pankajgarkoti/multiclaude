@@ -394,6 +394,7 @@ show_help() {
     echo ""
     printf "${BOLD}Commands:${NC}\n"
     echo "  s, status     Show current status"
+    echo "  d, dashboard  Live dashboard (auto-refresh every 5s)"
     echo "  w, watch      Watch status (auto-refresh)"
     echo "  l, logs       Tail worker status logs"
     echo "  m, messages   Tail central mailbox"
@@ -410,12 +411,142 @@ show_help() {
 }
 
 #───────────────────────────────────────────────────────────────────────────────
+# Live Dashboard (Auto-refresh)
+#───────────────────────────────────────────────────────────────────────────────
+
+show_live_dashboard() {
+    local refresh_interval=${1:-5}
+
+    printf "${YELLOW}Starting live dashboard (Ctrl+C to exit)...${NC}\n"
+    sleep 1
+
+    while true; do
+        clear
+        print_banner
+
+        # Show timestamp
+        printf "${DIM}Last updated: $(date '+%Y-%m-%d %H:%M:%S')${NC}\n"
+        echo ""
+
+        # Show worker status
+        printf "${BOLD}Worker Status:${NC}\n"
+        printf "  %-15s %-12s %s\n" "FEATURE" "STATUS" "MESSAGE"
+        print_separator
+
+        for worktree in "$PROJECT_PATH"/worktrees/feature-*; do
+            if [[ -d "$worktree" ]]; then
+                local feature=$(basename "$worktree" | sed 's/feature-//')
+                local log="$worktree/.claude/status.log"
+
+                if [[ -f "$log" ]]; then
+                    local last=$(grep -E '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' "$log" 2>/dev/null | tail -1)
+                    local status=$(echo "$last" | grep -oE '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' | tr -d '[]')
+                    local msg=$(echo "$last" | sed 's/.*\] //' | cut -c1-40)
+
+                    case "$status" in
+                        COMPLETE)    color="${GREEN}" ;;
+                        IN_PROGRESS) color="${YELLOW}" ;;
+                        TESTING)     color="${CYAN}" ;;
+                        BLOCKED|FAILED) color="${RED}" ;;
+                        *)           color="${NC}"; status="PENDING" ;;
+                    esac
+
+                    printf "  %-15s ${color}%-12s${NC} %s\n" "$feature" "$status" "$msg"
+                else
+                    printf "  %-15s ${RED}%-12s${NC}\n" "$feature" "NO_LOG"
+                fi
+            fi
+        done
+
+        echo ""
+
+        # Check project markers and show progress
+        printf "${BOLD}Project Status:${NC} "
+        if [[ -f "$PROJECT_PATH/.claude/PROJECT_COMPLETE" ]]; then
+            printf "${GREEN}PROJECT COMPLETE${NC}\n"
+        elif [[ -f "$PROJECT_PATH/.claude/QA_COMPLETE" ]]; then
+            printf "${GREEN}QA PASSED${NC}\n"
+        elif [[ -f "$PROJECT_PATH/.claude/QA_NEEDS_FIXES" ]]; then
+            printf "${YELLOW}QA NEEDS FIXES${NC}\n"
+        elif [[ -f "$PROJECT_PATH/.claude/ALL_MERGED" ]]; then
+            printf "${CYAN}MERGED - QA PENDING${NC}\n"
+        else
+            # Count complete vs total
+            local total=0
+            local complete=0
+            for worktree in "$PROJECT_PATH"/worktrees/feature-*; do
+                if [[ -d "$worktree" ]]; then
+                    ((total++))
+                    local log="$worktree/.claude/status.log"
+                    if [[ -f "$log" ]] && grep -q '\[COMPLETE\]' "$log" 2>/dev/null; then
+                        ((complete++))
+                    fi
+                fi
+            done
+            printf "${YELLOW}IN PROGRESS${NC} ($complete/$total features complete)\n"
+        fi
+
+        echo ""
+
+        # Show recent messages from mailbox
+        printf "${BOLD}Recent Messages:${NC}\n"
+        print_separator
+
+        if [[ -f "$PROJECT_PATH/.claude/mailbox" ]]; then
+            # Get last 3 messages
+            local msg_count=$(grep -c "^--- MESSAGE ---$" "$PROJECT_PATH/.claude/mailbox" 2>/dev/null || echo 0)
+            if [[ $msg_count -gt 0 ]]; then
+                # Show last 3 messages in compact format
+                awk '
+                    BEGIN { msg_num=0; msgs[0]=""; msgs[1]=""; msgs[2]="" }
+                    /^--- MESSAGE ---$/ {
+                        msg_num++
+                        next
+                    }
+                    /^timestamp:/ { ts=$2; next }
+                    /^from:/ { from=$2; next }
+                    /^to:/ {
+                        to=$2
+                        getline body
+                        # Truncate body
+                        body = substr(body, 1, 50)
+                        msgs[msg_num % 3] = sprintf("  %s -> %s: %s", from, to, body)
+                        next
+                    }
+                    END {
+                        # Print last 3 in order
+                        start = (msg_num > 3) ? msg_num - 2 : 1
+                        for (i = start; i <= msg_num; i++) {
+                            if (msgs[i % 3] != "") print msgs[i % 3]
+                        }
+                    }
+                ' "$PROJECT_PATH/.claude/mailbox" | tail -3
+
+                if [[ $msg_count -gt 3 ]]; then
+                    printf "  ${DIM}... and %d more messages${NC}\n" $((msg_count - 3))
+                fi
+            else
+                printf "  ${DIM}(no messages yet)${NC}\n"
+            fi
+        else
+            printf "  ${DIM}(no mailbox file)${NC}\n"
+        fi
+
+        echo ""
+        print_separator
+        printf "${DIM}Refreshing every ${refresh_interval}s. Press Ctrl+C to return to interactive mode.${NC}\n"
+
+        sleep $refresh_interval
+    done
+}
+
+#───────────────────────────────────────────────────────────────────────────────
 # Interactive Loop
 #───────────────────────────────────────────────────────────────────────────────
 
 interactive_loop() {
     print_separator
-    printf "${BOLD}Monitor ready.${NC} Type ${CYAN}help${NC} for commands.\n"
+    printf "${BOLD}Monitor ready.${NC} Type ${CYAN}help${NC} for commands, or ${CYAN}dashboard${NC} for live view.\n"
     print_separator
 
     show_status
@@ -428,6 +559,14 @@ interactive_loop() {
         case "$cmd" in
             s|status)
                 show_status
+                ;;
+            d|dashboard)
+                # Parse optional refresh interval
+                local interval=${args:-5}
+                # Trap Ctrl+C to return to interactive mode
+                trap 'echo ""; printf "${YELLOW}Returning to interactive mode...${NC}\n"; sleep 1' INT
+                show_live_dashboard "$interval"
+                trap - INT
                 ;;
             w|watch)
                 watch -n 5 "$SCRIPT_DIR/multiclaude" status "$PROJECT_PATH"

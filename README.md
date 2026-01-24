@@ -4,13 +4,40 @@ Parallel Claude Code development with coordinated agents. Multiple Claude instan
 
 ## Installation
 
+### One-liner (recommended)
+
 ```bash
-git clone <repo-url> multiclaude
-cd multiclaude
+curl -fsSL https://raw.githubusercontent.com/pankajgarkoti/multiclaude/main/remote-install.sh | bash
+```
+
+This will:
+- Clone multiclaude to `~/.multiclaude`
+- Install missing dependencies (git, tmux, claude CLI)
+- Add `multiclaude` command to your PATH
+
+### Custom install location
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pankajgarkoti/multiclaude/main/remote-install.sh | INSTALL_PATH=~/tools/multiclaude bash
+```
+
+### Manual installation
+
+```bash
+git clone https://github.com/pankajgarkoti/multiclaude.git ~/.multiclaude
+cd ~/.multiclaude
 ./install.sh
 ```
 
-**Requirements:** Claude Code CLI, git, tmux
+### Requirements
+
+The installer will attempt to install these automatically:
+- **git** - version control
+- **tmux** - terminal multiplexer for agent windows
+- **claude** - Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)
+
+Optional:
+- **jq** - JSON processing (for some status commands)
 
 ## Usage
 
@@ -26,7 +53,12 @@ This creates the project and launches a tmux session with:
 - **Window 2:** QA (runs tests when signaled)
 - **Window 3+:** Workers (one per feature)
 
-The Supervisor asks for your project description, creates specs and base code, then coordinates workers.
+### What Happens During Project Creation
+
+1. **Research Phase**: Claude researches similar products, capturing UI/UX patterns and best practices
+2. **Planning Phase**: Claude creates project specs informed by research findings
+3. **Standards Generation**: Project-specific quality standards are generated (not copied from template)
+4. **Development**: Supervisor coordinates workers to implement features
 
 ### Existing Project
 
@@ -52,6 +84,61 @@ multiclaude add notifications --description "Push notifications for task updates
 multiclaude attach ./my-app
 ```
 
+## Research Phase
+
+When creating a new project, multiclaude runs a research phase that:
+
+1. **Browses Referenced URLs**: Analyzes any URLs mentioned in your project description
+2. **Researches Similar Products**: Finds and analyzes 2-3 similar products in your domain
+3. **Captures UI/UX Patterns**: Documents layouts, components, user flows, and interactions
+4. **Generates Informed Standards**: Creates project-specific quality standards based on findings
+
+### Providing References for Better Results
+
+Include URLs or product names in your project description:
+
+```bash
+multiclaude new my-app
+# When prompted for description:
+# "A task management app like Todoist (https://todoist.com) with calendar integration
+#  similar to Notion's calendar view. Focus on clean minimal UI."
+```
+
+### Research Output
+
+Research findings are saved to `.claude/research-findings.md` and inform:
+- Project specifications (specs/PROJECT_SPEC.md)
+- Feature specifications (specs/features/*.spec.md)
+- Quality standards (specs/STANDARDS.md)
+
+## Monitor Dashboard
+
+The monitor (Window 0) provides a live dashboard for tracking progress:
+
+```bash
+# In the monitor, type:
+dashboard     # Start live auto-refreshing dashboard (every 5s)
+dashboard 10  # Custom refresh interval (10 seconds)
+# Press Ctrl+C to return to interactive mode
+```
+
+The dashboard shows:
+- **Worker Status**: Feature name, status (PENDING/IN_PROGRESS/COMPLETE/etc), and message
+- **Project Status**: Overall progress (X/Y features complete, merged, QA status)
+- **Recent Messages**: Last 3 messages from the mailbox
+
+### Monitor Commands
+
+| Command | Description |
+|---------|-------------|
+| `s`, `status` | Show current status |
+| `d`, `dashboard` | Live auto-refreshing dashboard |
+| `w`, `watch` | Watch status with system watch command |
+| `l`, `logs` | Tail all worker status logs |
+| `m`, `messages` | Tail the central mailbox |
+| `h`, `help` | Show help |
+| `q`, `quit` | Exit monitor (agents keep running) |
+
 ## tmux Navigation
 
 ```
@@ -69,6 +156,7 @@ Ctrl+b d    Detach (agents keep running)
 my-project/
 ├── .claude/
 │   ├── settings.json          # Claude permissions
+│   ├── research-findings.md   # Research phase output (UI/UX insights)
 │   ├── mailbox                 # Central message bus
 │   ├── qa-reports/             # Timestamped QA reports
 │   │   ├── qa-report-2024-01-24T100000.json
@@ -78,8 +166,8 @@ my-project/
 │   ├── SUPERVISOR.md           # Supervisor instructions
 │   └── QA_INSTRUCTIONS.md      # QA instructions
 ├── specs/
-│   ├── PROJECT_SPEC.md         # Architecture spec
-│   ├── STANDARDS.md            # Quality standards
+│   ├── PROJECT_SPEC.md         # Architecture spec (informed by research)
+│   ├── STANDARDS.md            # Quality standards (generated, not template)
 │   ├── .features               # Feature list (one per line)
 │   └── features/
 │       └── *.spec.md           # Individual feature specs

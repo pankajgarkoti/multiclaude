@@ -462,14 +462,150 @@ EOF
 create_standards() {
     local project_dir="$1"
 
-    log_info "Creating quality standards template..."
+    log_info "Generating project-specific quality standards..."
+    echo ""
+    echo -e "${CYAN}Claude will generate standards based on:${NC}"
+    echo "  - Research findings from .claude/research-findings.md"
+    echo "  - Project specification from specs/PROJECT_SPEC.md"
+    echo ""
 
-    # Check if template exists in workflow directory
-    if [[ -f "$SCRIPT_DIR/templates/STANDARDS.template.md" ]]; then
-        cp "$SCRIPT_DIR/templates/STANDARDS.template.md" "$project_dir/specs/STANDARDS.md"
+    cd "$project_dir"
+
+    # Create standards generation instructions
+    cat > "$project_dir/CLAUDE.md" << 'STANDARDS_EOF'
+# Standards Generation Instructions
+
+You are generating quality standards for this project based on research findings and the project specification.
+
+## Inputs to Read
+
+1. **Research findings**: `.claude/research-findings.md` - Contains UI/UX patterns, recommended standards, and best practices from analyzed products
+2. **Project specification**: `specs/PROJECT_SPEC.md` - Contains features, architecture, and requirements
+
+Read both files before generating standards.
+
+## Standard Format
+
+Each standard MUST follow this exact format:
+
+```markdown
+## STD-XXX: [Descriptive Name]
+**Category**: [Testing|UI|Security|CodeQuality|Performance|Documentation|Functional]
+
+As a [user/developer], [user story format describing expected behavior or requirement].
+
+**Verification**: [Specific command or method to verify this standard]
+**Acceptance Criteria**:
+- [ ] Criterion 1
+- [ ] Criterion 2
+- [ ] Criterion 3
+```
+
+## Required Standard Categories
+
+Include standards from ALL these categories:
+
+### Testing (STD-T)
+- Unit test coverage and passing
+- Integration tests
+- E2E tests if applicable
+
+### UI (STD-U)
+- Console error handling
+- Responsive design
+- Accessibility (a11y)
+- UI patterns from research findings
+
+### Security (STD-S)
+- No hardcoded secrets
+- Input validation
+- Authentication/authorization if applicable
+
+### Code Quality (STD-Q)
+- Linting passes
+- Type safety (TypeScript)
+- Code documentation
+
+### Performance (STD-P)
+- Load times
+- Bundle size
+- Resource usage
+
+### Functional (STD-F)
+- Core features from PROJECT_SPEC.md
+- User flows identified in research
+
+## Your Task
+
+1. Read `.claude/research-findings.md`
+2. Read `specs/PROJECT_SPEC.md`
+3. Generate `specs/STANDARDS.md` that:
+   - Starts with a header and overview
+   - Includes standards from ALL categories above
+   - Incorporates specific insights from research (UI/UX patterns observed)
+   - Adds project-specific functional standards based on features in PROJECT_SPEC
+   - Contains 15-25 total standards (comprehensive but focused)
+   - References analyzed products where relevant
+
+4. When complete, say "STANDARDS_COMPLETE"
+
+## Example Output Structure
+
+```markdown
+# Project Quality Standards
+
+This document defines quality standards that the QA Agent will verify.
+Standards are derived from research into similar products and project requirements.
+
+## Testing Standards
+
+### STD-T001: Unit Tests Pass
+**Category**: Testing
+...
+
+## UI Standards
+
+### STD-U001: No Console Errors
+**Category**: UI
+...
+
+## Functional Standards
+
+### STD-F001: [Feature from spec]
+**Category**: Functional
+...
+```
+
+Start by reading the research findings and project spec, then generate comprehensive standards.
+
+## IMPORTANT: Exiting This Phase
+When you have finished generating standards, remind the user:
+
+**"Standards generation complete! Type /exit to proceed to the development phase."**
+STANDARDS_EOF
+
+    echo -e "${BOLD}Starting Claude Code standards generation...${NC}"
+    echo "─────────────────────────────────────────"
+    echo ""
+    echo -e "${YELLOW}Note: Type /exit when Claude finishes to proceed.${NC}"
+    echo ""
+
+    local gen_prompt="Read CLAUDE.md for standards generation instructions. Read the research findings and project spec, then create specs/STANDARDS.md with project-specific quality standards. Say STANDARDS_COMPLETE when done."
+
+    claude "$gen_prompt" --dangerously-skip-permissions || true
+
+    echo ""
+    echo "─────────────────────────────────────────"
+
+    if [[ -f "$project_dir/specs/STANDARDS.md" ]]; then
+        log_success "Generated project-specific standards: specs/STANDARDS.md"
     else
-        # Create inline if template not found
-        cat > "$project_dir/specs/STANDARDS.md" << 'EOF'
+        log_warn "Standards generation failed, creating fallback template"
+        # Fallback to template if generation fails
+        if [[ -f "$SCRIPT_DIR/templates/STANDARDS.template.md" ]]; then
+            cp "$SCRIPT_DIR/templates/STANDARDS.template.md" "$project_dir/specs/STANDARDS.md"
+        else
+            cat > "$project_dir/specs/STANDARDS.md" << 'EOF'
 # Project Quality Standards
 
 This document defines quality standards the QA Agent will verify.
@@ -477,32 +613,75 @@ This document defines quality standards the QA Agent will verify.
 ## Testing Standards
 
 ### STD-T001: Unit Tests Pass
-All unit tests must pass. Run `npm test`.
+**Category**: Testing
+
+As a developer, all unit tests should pass before merging.
+
+**Verification**: Run `npm test`
+**Acceptance Criteria**:
+- [ ] All unit tests pass
+- [ ] No skipped tests without justification
 
 ### STD-T002: Code Coverage >= 80%
-Line coverage must be at least 80%.
+**Category**: Testing
+
+As a developer, code should have adequate test coverage.
+
+**Verification**: Run `npm test -- --coverage`
+**Acceptance Criteria**:
+- [ ] Line coverage >= 80%
+- [ ] Branch coverage >= 70%
 
 ## UI Standards
 
 ### STD-U001: No Console Errors
-No console errors during normal operation.
+**Category**: UI
+
+As a user, I should not see console errors during normal operation.
+
+**Verification**: Check browser console during feature usage
+**Acceptance Criteria**:
+- [ ] No JavaScript errors in console
+- [ ] No unhandled promise rejections
 
 ## Security Standards
 
 ### STD-S001: No Hardcoded Secrets
-No API keys or passwords in source code.
+**Category**: Security
+
+As a developer, no sensitive data should be in source code.
+
+**Verification**: Run `grep -r "password\|secret\|api_key" src/`
+**Acceptance Criteria**:
+- [ ] No API keys in source code
+- [ ] No passwords in source code
+- [ ] Secrets use environment variables
 
 ## Code Quality Standards
 
 ### STD-Q001: No Lint Errors
-Code must pass linting. Run `npm run lint`.
+**Category**: CodeQuality
+
+As a developer, code should follow style guidelines.
+
+**Verification**: Run `npm run lint`
+**Acceptance Criteria**:
+- [ ] No ESLint errors
+- [ ] No ESLint warnings (or documented exceptions)
 
 ### STD-Q002: TypeScript Strict Mode
-No TypeScript errors. Run `npx tsc --noEmit`.
-EOF
-    fi
+**Category**: CodeQuality
 
-    log_success "Quality standards created: specs/STANDARDS.md"
+As a developer, code should be type-safe.
+
+**Verification**: Run `npx tsc --noEmit`
+**Acceptance Criteria**:
+- [ ] No TypeScript errors
+- [ ] Strict mode enabled
+EOF
+        fi
+        log_success "Fallback standards created: specs/STANDARDS.md"
+    fi
 }
 
 #───────────────────────────────────────────────────────────────────────────────
@@ -927,6 +1106,167 @@ EOF
 }
 
 #───────────────────────────────────────────────────────────────────────────────
+# Research Phase (Runs First - Informs All Subsequent Generation)
+#───────────────────────────────────────────────────────────────────────────────
+
+run_research_phase() {
+    local project_dir="$1"
+    local project_name="$2"
+    local project_description="$3"
+
+    log_info "Starting research phase..."
+    echo ""
+    echo -e "${CYAN}Claude will research similar products and gather insights:${NC}"
+    echo "  - Browse any URLs in the project description"
+    echo "  - Research 2-3 similar products in this domain"
+    echo "  - Capture UI/UX patterns and best practices"
+    echo "  - Document findings for spec and standards generation"
+    echo ""
+
+    cd "$project_dir"
+    mkdir -p "$project_dir/.claude"
+
+    # Create research instructions in CLAUDE.md
+    cat > "$project_dir/CLAUDE.md" << RESEARCH_EOF
+# Research Phase Instructions
+
+You are a RESEARCH AGENT. Your task is to gather insights that will inform this project's specifications and quality standards.
+
+## Project Information
+- **Name**: ${project_name}
+- **Description**: ${project_description}
+
+## Your Tasks
+
+### 1. Analyze Project Description
+Extract any URLs, product references, or domain-specific terminology from the description above.
+
+### 2. Browse Referenced URLs
+If the description mentions any URLs or specific products:
+- Use WebFetch to analyze each referenced product/service
+- Capture: features, UI patterns, UX flows, quality indicators
+
+### 3. Research 2-3 Similar Products
+Search for and analyze 2-3 similar products or competitors in this domain:
+- Use WebSearch to find similar products
+- Use WebFetch to analyze each product's website
+- For each product, document:
+  - **Features**: Core functionality, unique capabilities
+  - **UI patterns**: Visual design, layouts, components, styling approaches
+  - **UX patterns**: User flows, navigation, interactions, onboarding
+  - **Quality aspects**: Performance indicators, accessibility, error handling
+
+### 4. Document Your Findings
+Create the file \`.claude/research-findings.md\` with this structure:
+
+\`\`\`markdown
+# Research Findings
+
+## Project Context
+[Brief summary of what we're building based on the description]
+
+## Referenced URLs Analysis
+### [URL 1]
+- **Key features**: ...
+- **UI patterns**: [layouts, components, visual style]
+- **UX patterns**: [user flows, interactions, navigation]
+- **Quality indicators**: ...
+
+## Similar Products Analyzed
+
+### [Product 1 Name]
+- **URL**: [product URL]
+- **Features**: Core functionality, unique capabilities
+- **UI patterns**: Visual design, layouts, components used
+- **UX patterns**: User flows, navigation structure, interactions
+- **Quality aspects**: Performance, accessibility, error handling
+
+### [Product 2 Name]
+(same structure)
+
+### [Product 3 Name]
+(same structure)
+
+## UI/UX Recommendations
+Based on research, adopt these patterns:
+- **[UI pattern 1]**: [description and why it's recommended]
+- **[UI pattern 2]**: [description and why it's recommended]
+- **[UX pattern 1]**: [description and why it's recommended]
+- **[UX pattern 2]**: [description and why it's recommended]
+
+## Recommended Standards
+Based on analysis of similar products, the project should meet these standards:
+- [Standard 1]: [rationale from research]
+- [Standard 2]: [rationale from research]
+- [Standard 3]: [rationale from research]
+
+## Industry Best Practices
+- [Best practice 1]
+- [Best practice 2]
+- [Best practice 3]
+
+## Technology Observations
+Common technologies/approaches used by similar products:
+- [Technology/pattern 1]
+- [Technology/pattern 2]
+\`\`\`
+
+### 5. Complete
+When you have finished researching and documenting findings, say "RESEARCH_COMPLETE" to indicate you are done.
+
+## Tools Available
+- **WebSearch**: For finding similar products and researching the domain
+- **WebFetch**: For browsing and analyzing specific URLs
+- **Write/Edit**: For creating .claude/research-findings.md
+
+## IMPORTANT: Exiting This Phase
+When you are done with research, remind the user:
+
+**"Research phase complete! Type /exit to proceed to the planning phase."**
+
+## Start Now
+Begin by analyzing the project description, then search for and analyze similar products. Document everything in .claude/research-findings.md.
+RESEARCH_EOF
+
+    echo -e "${BOLD}Starting Claude Code research session...${NC}"
+    echo "─────────────────────────────────────────"
+    echo ""
+    echo -e "${YELLOW}Note: Type /exit when Claude finishes research to proceed.${NC}"
+    echo ""
+
+    # Launch Claude for research
+    local research_prompt="Read CLAUDE.md for your research instructions. Research similar products and create .claude/research-findings.md with your findings. Say RESEARCH_COMPLETE when done."
+
+    claude "$research_prompt" --dangerously-skip-permissions || true
+
+    echo ""
+    echo "─────────────────────────────────────────"
+
+    # Verify research was completed
+    if [[ -f "$project_dir/.claude/research-findings.md" ]]; then
+        log_success "Research findings saved to .claude/research-findings.md"
+    else
+        log_warn "No research findings created, will use template standards"
+        # Create minimal placeholder so downstream steps don't fail
+        cat > "$project_dir/.claude/research-findings.md" << 'EOF'
+# Research Findings
+
+## Project Context
+Research phase was skipped or did not complete.
+
+## Similar Products Analyzed
+No products were analyzed.
+
+## UI/UX Recommendations
+Use standard industry patterns.
+
+## Recommended Standards
+Follow standard quality practices.
+EOF
+    fi
+}
+
+#───────────────────────────────────────────────────────────────────────────────
 # Claude Planning Phase
 #───────────────────────────────────────────────────────────────────────────────
 
@@ -955,15 +1295,30 @@ You are a software architect helping to plan a new project. Your task is to anal
 - **Name**: ${project_name}
 - **Description**: ${project_description}
 
+## Research Context
+
+**IMPORTANT**: First, read the research findings from the research phase:
+\`\`\`bash
+cat .claude/research-findings.md
+\`\`\`
+
+Use these insights to inform your PROJECT_SPEC.md and feature specs:
+- Apply UI/UX patterns observed in similar products
+- Incorporate industry best practices discovered
+- Reference analyzed products as inspiration
+- Use recommended standards from the research
+
 ## Your Tasks
 
 ### 1. Create Project Specification
 Create a comprehensive project spec at \`specs/PROJECT_SPEC.md\` that includes:
 - Executive summary and goals
-- System architecture (with ASCII diagrams)
-- Technology stack recommendations (with rationale)
+- **Research Insights** section summarizing key learnings from analyzed products
+- System architecture (with ASCII diagrams) informed by patterns from research
+- Technology stack recommendations (with rationale, referencing research)
 - Domain model and core entities
 - Feature breakdown for parallel development
+- UI/UX patterns to adopt (from research findings)
 - Non-functional requirements (performance, security, scalability)
 
 ### 2. Identify Feature Modules
@@ -973,7 +1328,33 @@ Break down the project into 3-7 independent feature modules that can be develope
 - Clear boundaries and interfaces
 - Each feature should be implementable by a single Claude instance
 
-### 3. Create Feature Specifications
+### 3. Ask Clarifying Questions (IMPORTANT)
+Before finalizing specifications, ASK THE USER about any unknowns or decisions that need their input:
+
+**Technical Choices:**
+- UI framework/library preference (React, Vue, Svelte, etc.)?
+- Styling approach (Tailwind, CSS modules, styled-components)?
+- State management preference?
+- Database choice (if applicable)?
+
+**API & Services:**
+- Which API providers to use (authentication, payments, email, etc.)?
+- Any existing APIs or services to integrate with?
+- Preferred hosting/deployment platform?
+
+**Design & UX:**
+- Any specific design system or component library?
+- Mobile-first or desktop-first?
+- Any accessibility requirements (WCAG level)?
+
+**Project Scope:**
+- MVP vs full feature set?
+- Any hard constraints or requirements?
+- Timeline considerations?
+
+Ask these questions conversationally. Wait for the user's responses before finalizing the specs. Incorporate their answers into PROJECT_SPEC.md and feature specs.
+
+### 4. Create Feature Specifications
 For each feature module, create a detailed spec file at \`specs/features/<feature-name>.spec.md\` containing:
 - Feature overview and purpose
 - Acceptance criteria (checkboxes)
@@ -982,7 +1363,7 @@ For each feature module, create a detailed spec file at \`specs/features/<featur
 - Testing requirements
 - Definition of done
 
-### 4. Output Feature List (CRITICAL)
+### 6. Output Feature List (CRITICAL)
 **IMPORTANT**: After creating all specs, you MUST create a file at \`specs/.features\` containing ONLY the feature names (one per line, lowercase, no spaces). This file is required for the automation scripts to continue.
 
 Example \`specs/.features\` content:
@@ -999,19 +1380,32 @@ ui
 - Keep features loosely coupled
 - Define clear interfaces between modules
 - Be specific in acceptance criteria - they will guide implementation
+- Incorporate user's answers to clarifying questions into all specs
+
+## IMPORTANT: Exiting This Phase
+When you have finished planning and created all specification files, remind the user:
+
+**"Planning phase complete! All specs have been created. Type /exit to proceed to the next phase."**
 
 ## Start Now
-Read these instructions and begin planning. Start by creating specs/PROJECT_SPEC.md, then create individual feature specs, and finally create specs/.features with the feature list.
+1. First, read the research findings from .claude/research-findings.md
+2. Ask the user clarifying questions about technical choices, APIs, and preferences
+3. Create specs/PROJECT_SPEC.md incorporating their answers
+4. Create individual feature specs in specs/features/
+5. Create specs/.features with the feature list
+6. Remind the user to type /exit when done
 PROMPT_EOF
 
     echo -e "${BOLD}Starting Claude Code planning session...${NC}"
     echo "─────────────────────────────────────────"
     echo ""
     echo -e "${YELLOW}Instructions:${NC}"
-    echo "  1. Claude will begin planning automatically"
-    echo "  2. Watch as Claude creates the project and feature specs"
-    echo "  3. When Claude finishes and creates specs/.features, exit Claude"
-    echo "  4. Type /exit or press Ctrl+D to exit when done"
+    echo "  1. Claude will ask clarifying questions about your project"
+    echo "  2. Answer questions about tech stack, APIs, UI preferences, etc."
+    echo "  3. Claude will create project and feature specs based on your answers"
+    echo "  4. When Claude finishes and creates specs/.features, type ${BOLD}/exit${NC} to proceed"
+    echo ""
+    echo -e "${CYAN}Tip: Be specific with your answers - they shape the entire project!${NC}"
     echo ""
     read -p "Press Enter to start Claude..."
     echo ""
@@ -1171,9 +1565,10 @@ main() {
     echo ""
     echo "This script will:"
     echo "  1. Create project directory and base structure"
-    echo "  2. Launch Claude Code to analyze and plan the project"
-    echo "  3. Claude will create project spec and feature breakdowns"
-    echo "  4. Set up worktrees and launch parallel Claude instances"
+    echo "  2. Research similar products and gather UI/UX insights"
+    echo "  3. Launch Claude Code to plan the project (informed by research)"
+    echo "  4. Generate project-specific quality standards"
+    echo "  5. Set up worktrees and launch parallel Claude instances"
     echo ""
 
     # Get project details (use args if provided, otherwise prompt)
@@ -1229,13 +1624,18 @@ main() {
     init_git_repo "$project_dir"
     create_mcp_config "$project_dir"
 
-    # Phase 2: Run Claude planning
-    log_info "Phase 2: Running Claude Code for project planning..."
+    # Phase 2: Research phase (runs FIRST to inform all subsequent steps)
+    log_info "Phase 2: Running research phase..."
+    echo ""
+    run_research_phase "$project_dir" "$project_name" "$project_description"
+
+    # Phase 3: Run Claude planning (informed by research)
+    log_info "Phase 3: Running Claude Code for project planning (informed by research)..."
     echo ""
     run_claude_planning "$project_dir" "$project_name" "$project_description"
 
-    # Phase 3: Extract features from Claude's plan
-    log_info "Phase 3: Extracting features from plan..."
+    # Phase 4: Extract features from Claude's plan
+    log_info "Phase 4: Extracting features from plan..."
     local features=()
     while IFS= read -r feature; do
         [[ -n "$feature" ]] && features+=("$feature")
@@ -1258,10 +1658,17 @@ main() {
         exit 0
     fi
 
-    # Phase 4: Create source structure (no scripts - run via multiclaude CLI)
-    log_info "Phase 4: Creating source structure..."
+    # Phase 5: Create source structure
+    log_info "Phase 5: Creating source structure..."
     create_base_source "$project_dir" "${features[@]}"
+
+    # Phase 6: Generate standards (informed by research + spec)
+    log_info "Phase 6: Generating project-specific standards..."
+    echo ""
     create_standards "$project_dir"
+
+    # Phase 7: Create README
+    log_info "Phase 7: Finalizing project..."
     create_readme "$project_dir" "$project_name"
 
     # Initial commit
@@ -1303,7 +1710,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
     echo ""
     if prompt_confirm "Start the full development loop now?" "y"; then
         echo ""
-        log_info "Phase 5: Starting development loop..."
+        log_info "Phase 8: Starting development loop..."
         multiclaude run "$project_dir"
     else
         echo ""

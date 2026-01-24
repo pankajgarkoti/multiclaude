@@ -18,11 +18,350 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 BOLD='\033[1m'
 
+#───────────────────────────────────────────────────────────────────────────────
+# OS Detection
+#───────────────────────────────────────────────────────────────────────────────
+
+detect_os() {
+    case "$(uname -s)" in
+        Darwin*)
+            OS="macos"
+            ;;
+        Linux*)
+            OS="linux"
+            # Detect Linux distribution
+            if [[ -f /etc/os-release ]]; then
+                . /etc/os-release
+                DISTRO="$ID"
+            elif [[ -f /etc/debian_version ]]; then
+                DISTRO="debian"
+            elif [[ -f /etc/redhat-release ]]; then
+                DISTRO="rhel"
+            else
+                DISTRO="unknown"
+            fi
+            ;;
+        *)
+            OS="unknown"
+            ;;
+    esac
+}
+
+#───────────────────────────────────────────────────────────────────────────────
+# Package Manager Detection
+#───────────────────────────────────────────────────────────────────────────────
+
+detect_package_manager() {
+    if [[ "$OS" == "macos" ]]; then
+        if command -v brew &>/dev/null; then
+            PKG_MANAGER="brew"
+            PKG_INSTALL="brew install"
+        else
+            PKG_MANAGER="none"
+        fi
+    elif [[ "$OS" == "linux" ]]; then
+        if command -v apt-get &>/dev/null; then
+            PKG_MANAGER="apt"
+            PKG_INSTALL="sudo apt-get install -y"
+        elif command -v dnf &>/dev/null; then
+            PKG_MANAGER="dnf"
+            PKG_INSTALL="sudo dnf install -y"
+        elif command -v yum &>/dev/null; then
+            PKG_MANAGER="yum"
+            PKG_INSTALL="sudo yum install -y"
+        elif command -v pacman &>/dev/null; then
+            PKG_MANAGER="pacman"
+            PKG_INSTALL="sudo pacman -S --noconfirm"
+        elif command -v apk &>/dev/null; then
+            PKG_MANAGER="apk"
+            PKG_INSTALL="sudo apk add"
+        else
+            PKG_MANAGER="none"
+        fi
+    else
+        PKG_MANAGER="none"
+    fi
+}
+
+#───────────────────────────────────────────────────────────────────────────────
+# Tool Installation Functions
+#───────────────────────────────────────────────────────────────────────────────
+
+install_homebrew() {
+    printf "${YELLOW}!${NC} Homebrew not found. Installing Homebrew...\n"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+    # Add to PATH for this session
+    if [[ -f /opt/homebrew/bin/brew ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -f /usr/local/bin/brew ]]; then
+        eval "$(/usr/local/bin/brew shellenv)"
+    fi
+
+    if command -v brew &>/dev/null; then
+        PKG_MANAGER="brew"
+        PKG_INSTALL="brew install"
+        printf "${GREEN}✓${NC} Homebrew installed successfully\n"
+        return 0
+    else
+        printf "${RED}✗${NC} Failed to install Homebrew\n"
+        return 1
+    fi
+}
+
+install_tool() {
+    local tool="$1"
+    local package="$2"
+
+    printf "  Installing ${BOLD}$tool${NC}..."
+
+    if [[ "$PKG_MANAGER" == "none" ]]; then
+        printf " ${RED}FAILED${NC} (no package manager)\n"
+        return 1
+    fi
+
+    # Handle package name differences across package managers
+    local pkg_name="$package"
+    case "$PKG_MANAGER" in
+        pacman)
+            # Arch uses different package names sometimes
+            case "$package" in
+                jq) pkg_name="jq" ;;
+            esac
+            ;;
+    esac
+
+    if $PKG_INSTALL "$pkg_name" &>/dev/null; then
+        printf " ${GREEN}OK${NC}\n"
+        return 0
+    else
+        printf " ${RED}FAILED${NC}\n"
+        return 1
+    fi
+}
+
+install_claude_cli() {
+    printf "  Installing ${BOLD}Claude Code CLI${NC}...\n"
+
+    # Claude CLI is installed via npm
+    if ! command -v npm &>/dev/null; then
+        printf "    ${YELLOW}!${NC} npm not found, installing Node.js first...\n"
+
+        if [[ "$OS" == "macos" ]]; then
+            if ! $PKG_INSTALL node &>/dev/null; then
+                printf "    ${RED}✗${NC} Failed to install Node.js\n"
+                return 1
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            case "$PKG_MANAGER" in
+                apt)
+                    # Use NodeSource for more recent Node.js
+                    curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - &>/dev/null
+                    sudo apt-get install -y nodejs &>/dev/null
+                    ;;
+                dnf|yum)
+                    curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash - &>/dev/null
+                    $PKG_INSTALL nodejs &>/dev/null
+                    ;;
+                pacman)
+                    $PKG_INSTALL nodejs npm &>/dev/null
+                    ;;
+                apk)
+                    $PKG_INSTALL nodejs npm &>/dev/null
+                    ;;
+                *)
+                    printf "    ${RED}✗${NC} Cannot install Node.js automatically\n"
+                    return 1
+                    ;;
+            esac
+        fi
+    fi
+
+    if ! command -v npm &>/dev/null; then
+        printf "    ${RED}✗${NC} npm still not available\n"
+        return 1
+    fi
+
+    # Install Claude CLI globally
+    printf "    Installing @anthropic-ai/claude-code via npm...\n"
+    if npm install -g @anthropic-ai/claude-code &>/dev/null; then
+        printf "    ${GREEN}✓${NC} Claude Code CLI installed\n"
+        return 0
+    else
+        printf "    ${RED}✗${NC} Failed to install Claude Code CLI\n"
+        printf "    Try manually: ${CYAN}npm install -g @anthropic-ai/claude-code${NC}\n"
+        return 1
+    fi
+}
+
+#───────────────────────────────────────────────────────────────────────────────
+# Dependency Check and Installation
+#───────────────────────────────────────────────────────────────────────────────
+
+check_and_install_dependencies() {
+    printf "${BOLD}Checking dependencies...${NC}\n"
+    echo ""
+
+    local failed=()
+
+    # Define required tools
+    declare -A REQUIRED_TOOLS=(
+        ["git"]="git"
+        ["tmux"]="tmux"
+        ["claude"]="claude"
+    )
+
+    # Define optional tools
+    declare -A OPTIONAL_TOOLS=(
+        ["jq"]="jq"
+    )
+
+    # Check and install required tools
+    for tool in "${!REQUIRED_TOOLS[@]}"; do
+        local package="${REQUIRED_TOOLS[$tool]}"
+
+        if command -v "$tool" &>/dev/null; then
+            printf "  ${GREEN}✓${NC} $tool\n"
+        else
+            printf "  ${YELLOW}!${NC} $tool not found\n"
+
+            # Attempt installation
+            if [[ "$tool" == "claude" ]]; then
+                if ! install_claude_cli; then
+                    failed+=("$tool")
+                fi
+            else
+                if ! install_tool "$tool" "$package"; then
+                    failed+=("$tool")
+                fi
+            fi
+
+            # Verify installation
+            if command -v "$tool" &>/dev/null; then
+                printf "  ${GREEN}✓${NC} $tool installed successfully\n"
+            fi
+        fi
+    done
+
+    echo ""
+
+    # Check and install optional tools
+    printf "${BOLD}Checking optional dependencies...${NC}\n"
+    for tool in "${!OPTIONAL_TOOLS[@]}"; do
+        local package="${OPTIONAL_TOOLS[$tool]}"
+
+        if command -v "$tool" &>/dev/null; then
+            printf "  ${GREEN}✓${NC} $tool\n"
+        else
+            printf "  ${YELLOW}!${NC} $tool not found (optional)\n"
+
+            # Attempt installation
+            if install_tool "$tool" "$package"; then
+                printf "  ${GREEN}✓${NC} $tool installed\n"
+            else
+                printf "  ${YELLOW}!${NC} $tool installation failed (continuing anyway)\n"
+            fi
+        fi
+    done
+
+    echo ""
+
+    # Check if any required tools failed
+    if [[ ${#failed[@]} -gt 0 ]]; then
+        printf "${RED}═══════════════════════════════════════════════════════════════${NC}\n"
+        printf "${RED}  INSTALLATION FAILED${NC}\n"
+        printf "${RED}═══════════════════════════════════════════════════════════════${NC}\n"
+        echo ""
+        printf "  Could not install required tools: ${RED}${failed[*]}${NC}\n"
+        echo ""
+        printf "  Please install manually:\n"
+        for dep in "${failed[@]}"; do
+            case "$dep" in
+                git)
+                    printf "    git:   ${CYAN}brew install git${NC} (macOS)\n"
+                    printf "           ${CYAN}sudo apt install git${NC} (Debian/Ubuntu)\n"
+                    printf "           ${CYAN}sudo dnf install git${NC} (Fedora/RHEL)\n"
+                    ;;
+                tmux)
+                    printf "    tmux:  ${CYAN}brew install tmux${NC} (macOS)\n"
+                    printf "           ${CYAN}sudo apt install tmux${NC} (Debian/Ubuntu)\n"
+                    printf "           ${CYAN}sudo dnf install tmux${NC} (Fedora/RHEL)\n"
+                    ;;
+                claude)
+                    printf "    claude: ${CYAN}npm install -g @anthropic-ai/claude-code${NC}\n"
+                    printf "            Or visit: https://claude.ai/code\n"
+                    ;;
+            esac
+        done
+        echo ""
+        exit 1
+    fi
+
+    printf "${GREEN}✓${NC} All required dependencies satisfied\n"
+    echo ""
+}
+
+#───────────────────────────────────────────────────────────────────────────────
+# Main Installation
+#───────────────────────────────────────────────────────────────────────────────
+
 echo ""
 printf "${CYAN}═══════════════════════════════════════════════════════════════${NC}\n"
 printf "${BOLD}  MULTICLAUDE INSTALLER v${VERSION}${NC}\n"
 printf "${CYAN}═══════════════════════════════════════════════════════════════${NC}\n"
 echo ""
+
+# Detect OS and package manager
+detect_os
+detect_package_manager
+
+printf "${BOLD}System detected:${NC} $OS"
+if [[ "$OS" == "linux" ]]; then
+    printf " ($DISTRO)"
+fi
+echo ""
+printf "${BOLD}Package manager:${NC} "
+if [[ "$PKG_MANAGER" == "none" ]]; then
+    printf "${YELLOW}none found${NC}\n"
+else
+    printf "${GREEN}$PKG_MANAGER${NC}\n"
+fi
+echo ""
+
+# On macOS without Homebrew, offer to install it
+if [[ "$OS" == "macos" && "$PKG_MANAGER" == "none" ]]; then
+    printf "${YELLOW}!${NC} Homebrew is required to install dependencies on macOS.\n"
+    read -p "  Install Homebrew now? (Y/n): " confirm
+    if [[ ! "$confirm" =~ ^[Nn] ]]; then
+        if ! install_homebrew; then
+            printf "${RED}✗${NC} Cannot proceed without a package manager.\n"
+            exit 1
+        fi
+    else
+        printf "${RED}✗${NC} Cannot proceed without Homebrew on macOS.\n"
+        printf "  Install manually: ${CYAN}https://brew.sh${NC}\n"
+        exit 1
+    fi
+    echo ""
+fi
+
+# On Linux without package manager, halt
+if [[ "$OS" == "linux" && "$PKG_MANAGER" == "none" ]]; then
+    printf "${RED}✗${NC} No supported package manager found.\n"
+    printf "  Supported: apt, dnf, yum, pacman, apk\n"
+    printf "  Please install dependencies manually.\n"
+    exit 1
+fi
+
+# Unsupported OS
+if [[ "$OS" == "unknown" ]]; then
+    printf "${RED}✗${NC} Unsupported operating system.\n"
+    printf "  multiclaude supports macOS and Linux.\n"
+    exit 1
+fi
+
+# Check and install dependencies
+check_and_install_dependencies
 
 # Check if already installed
 EXISTING=""
@@ -62,48 +401,8 @@ chmod +x "$SCRIPT_DIR/loop.sh"
 chmod +x "$SCRIPT_DIR/monitor.sh"
 chmod +x "$SCRIPT_DIR/feature.sh"
 chmod +x "$SCRIPT_DIR/install.sh"
+chmod +x "$SCRIPT_DIR/remote-install.sh" 2>/dev/null || true
 printf "${GREEN}✓${NC} All scripts are executable\n"
-echo ""
-
-# Check dependencies
-printf "${BOLD}Checking dependencies...${NC}\n"
-missing=()
-optional_missing=()
-
-# Required
-command -v git &>/dev/null || missing+=("git")
-
-# Required for full functionality
-command -v claude &>/dev/null || missing+=("claude")
-command -v tmux &>/dev/null || optional_missing+=("tmux")
-command -v jq &>/dev/null || optional_missing+=("jq")
-
-if [[ ${#missing[@]} -gt 0 ]]; then
-    printf "${RED}✗${NC} Missing required: ${missing[*]}\n"
-    echo ""
-    echo "  Please install:"
-    for dep in "${missing[@]}"; do
-        case "$dep" in
-            git) echo "    git:   brew install git (macOS) or apt install git (Linux)" ;;
-            claude) echo "    claude: https://claude.ai/code" ;;
-        esac
-    done
-    echo ""
-    exit 1
-fi
-
-if [[ ${#optional_missing[@]} -gt 0 ]]; then
-    printf "${YELLOW}!${NC} Missing optional: ${optional_missing[*]}\n"
-    echo "  Some features may not work without these."
-    for dep in "${optional_missing[@]}"; do
-        case "$dep" in
-            tmux) echo "    tmux: brew install tmux (macOS) or apt install tmux (Linux)" ;;
-            jq) echo "    jq:   brew install jq (macOS) or apt install jq (Linux)" ;;
-        esac
-    done
-else
-    printf "${GREEN}✓${NC} All dependencies satisfied\n"
-fi
 echo ""
 
 # Install symlink
