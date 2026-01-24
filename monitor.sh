@@ -82,9 +82,11 @@ watch_mailbox() {
     while true; do
         if [[ -f "$mailbox" ]]; then
             # Count messages by counting "--- MESSAGE ---" markers
-            local msg_count=$(grep -c "^--- MESSAGE ---$" "$mailbox" 2>/dev/null || echo 0)
+            local msg_count
+            msg_count=$(grep -c "^--- MESSAGE ---$" "$mailbox" 2>/dev/null | head -1 || echo "0")
+            msg_count=${msg_count:-0}
 
-            if [[ $msg_count -gt $processed_count ]]; then
+            if [[ "$msg_count" -gt "$processed_count" ]]; then
                 # Process new messages using awk
                 awk -v start=$((processed_count + 1)) '
                     BEGIN { msg_num=0; in_msg=0; in_body=0; from=""; to=""; body="" }
@@ -494,8 +496,10 @@ show_live_dashboard() {
 
         if [[ -f "$PROJECT_PATH/.claude/mailbox" ]]; then
             # Get last 3 messages
-            local msg_count=$(grep -c "^--- MESSAGE ---$" "$PROJECT_PATH/.claude/mailbox" 2>/dev/null || echo 0)
-            if [[ $msg_count -gt 0 ]]; then
+            local msg_count
+            msg_count=$(grep -c "^--- MESSAGE ---$" "$PROJECT_PATH/.claude/mailbox" 2>/dev/null | head -1 || echo "0")
+            msg_count=${msg_count:-0}
+            if [[ "$msg_count" -gt 0 ]]; then
                 # Show last 3 messages in compact format
                 awk '
                     BEGIN { msg_num=0; msgs[0]=""; msgs[1]=""; msgs[2]="" }
@@ -522,8 +526,8 @@ show_live_dashboard() {
                     }
                 ' "$PROJECT_PATH/.claude/mailbox" | tail -3
 
-                if [[ $msg_count -gt 3 ]]; then
-                    printf "  ${DIM}... and %d more messages${NC}\n" $((msg_count - 3))
+                if [[ "$msg_count" -gt 3 ]]; then
+                    printf "  ${DIM}... and %d more messages${NC}\n" "$((msg_count - 3))"
                 fi
             else
                 printf "  ${DIM}(no messages yet)${NC}\n"
