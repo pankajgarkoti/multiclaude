@@ -88,11 +88,13 @@ watch_mailbox() {
 
             if [[ "$msg_count" -gt "$processed_count" ]]; then
                 # Process new messages using awk
+                # Encode newlines as ␤ (Unicode U+2424) to preserve multi-line messages
                 awk -v start=$((processed_count + 1)) '
                     BEGIN { msg_num=0; in_msg=0; in_body=0; from=""; to=""; body="" }
                     /^--- MESSAGE ---$/ {
                         if (in_body && msg_num >= start && to != "") {
                             gsub(/\n$/, "", body)
+                            gsub(/\n/, "␤", body)
                             print from "|" to "|" body
                         }
                         msg_num++
@@ -110,16 +112,23 @@ watch_mailbox() {
                     END {
                         if (in_body && msg_num >= start && to != "") {
                             gsub(/\n$/, "", body)
+                            gsub(/\n/, "␤", body)
                             print from "|" to "|" body
                         }
                     }
                 ' "$mailbox" | while IFS='|' read -r from to body; do
                     if [[ -n "$to" && -n "$body" ]]; then
                         # Route message via tmux, include sender for context
-                        local msg="[from:$from] $body"
-                        tmux send-keys -t "$SESSION_NAME:$to" "$msg"
-                        sleep 0.2
-                        tmux send-keys -t "$SESSION_NAME:$to" Enter
+                        # Use -l (literal) to prevent special character interpretation
+                        tmux send-keys -t "$SESSION_NAME:$to" -l "[from:$from] "
+
+                        # Decode ␤ back to newlines and send line by line
+                        echo "$body" | tr '␤' '\n' | while IFS= read -r line || [[ -n "$line" ]]; do
+                            tmux send-keys -t "$SESSION_NAME:$to" -l "$line"
+                            tmux send-keys -t "$SESSION_NAME:$to" Enter
+                            sleep 0.1
+                        done
+
                         sleep 0.2
                         tmux send-keys -t "$SESSION_NAME:$to" Enter
                         log_step "Routed: $from -> $to"
