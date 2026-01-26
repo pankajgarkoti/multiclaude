@@ -5,8 +5,23 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
+# Portable symlink resolution (works on macOS without coreutils)
+_resolve_symlink() {
+    local path="$1"
+    while [[ -L "$path" ]]; do
+        local dir="$(dirname "$path")"
+        path="$(readlink "$path")"
+        [[ "$path" != /* ]] && path="$dir/$path"
+    done
+    echo "$path"
+}
+
+SCRIPT_DIR="$(cd "$(dirname "$(_resolve_symlink "${BASH_SOURCE[0]}")")" && pwd)"
 VERSION="1.0.0"
+
+# Global flags
+VERBOSE=""
+DRY_RUN=""
 
 # Colors
 RED='\033[0;31m'
@@ -17,31 +32,57 @@ NC='\033[0m'
 BOLD='\033[1m'
 DIM='\033[2m'
 
+# Helper functions
+log_verbose() {
+    [[ "$VERBOSE" == "true" ]] && printf "${DIM}[verbose] %s${NC}\n" "$1"
+}
+
+validate_project_name() {
+    local name="$1"
+    if [[ ! "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+        printf "${RED}Error: Invalid name '%s'${NC}\n" "$name"
+        echo "Names must start with a letter and contain only letters, numbers, hyphens, underscores."
+        exit 1
+    fi
+    # Check length
+    if [[ ${#name} -gt 64 ]]; then
+        printf "${RED}Error: Name too long (max 64 chars)${NC}\n"
+        exit 1
+    fi
+}
+
 print_banner() {
     printf "${CYAN}multiclaude${NC} v${VERSION}\n"
 }
 
 print_usage() {
     printf "${BOLD}Usage:${NC}\n"
-    printf "  ${CYAN}multiclaude new [name]${NC}              Create new project (interactive)\n"
-    printf "  ${CYAN}multiclaude new -f <brief.txt>${NC}      Create project from brief file\n"
-    printf "  ${CYAN}multiclaude add <feature>${NC}           Add feature to current project\n"
-    printf "  ${CYAN}multiclaude add -f <brief.txt>${NC}      Add feature from brief file\n"
+    printf "  ${CYAN}multiclaude new [name]${NC}              Create new project\n"
+    printf "  ${CYAN}multiclaude new .${NC}                   Create in current directory\n"
+    printf "  ${CYAN}multiclaude new -f <brief.txt>${NC}      Create from brief file\n"
+    printf "  ${CYAN}multiclaude add <feature>${NC}           Add feature to project\n"
+    printf "  ${CYAN}multiclaude add -f <brief.txt>${NC}      Add feature from brief\n"
     printf "  ${CYAN}multiclaude run [path] [--auto-pr]${NC}  Launch agent session\n"
-    printf "  ${CYAN}multiclaude status [path]${NC}           Show worker/project status\n"
+    printf "  ${CYAN}multiclaude stop [path]${NC}             Stop agent session\n"
+    printf "  ${CYAN}multiclaude status [path]${NC}           Show worker status\n"
+    printf "  ${CYAN}multiclaude logs [path]${NC}             View logs/mailbox\n"
     printf "  ${CYAN}multiclaude attach [path]${NC}           Attach to tmux session\n"
-    printf "  ${CYAN}multiclaude monitor [path]${NC}          Restart dashboard in session\n"
+    printf "  ${CYAN}multiclaude monitor [path]${NC}          Restart dashboard\n"
+    printf "  ${CYAN}multiclaude install${NC}                 Install/update multiclaude\n"
     echo ""
     printf "${BOLD}Options:${NC}\n"
-    printf "  ${DIM}--auto-pr${NC}    Create GitHub PR when QA passes (requires gh CLI)\n"
-    printf "  ${DIM}-f, --from-file${NC}  Read project/feature details from file\n"
-    printf "  ${DIM}-h, --help${NC}   Show this help\n"
-    printf "  ${DIM}-v, --version${NC} Show version\n"
+    printf "  ${DIM}--auto-pr${NC}        Create GitHub PR when QA passes\n"
+    printf "  ${DIM}-f, --from-file${NC}  Read details from file\n"
+    printf "  ${DIM}-V, --verbose${NC}    Show detailed output\n"
+    printf "  ${DIM}-n, --dry-run${NC}    Preview without executing\n"
+    printf "  ${DIM}-h, --help${NC}       Show this help\n"
+    printf "  ${DIM}-v, --version${NC}    Show version\n"
 }
 
 cmd_new() {
     local name=""
     local from_file=""
+    local use_current_dir=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -49,6 +90,10 @@ cmd_new() {
             --from-file|-f)
                 from_file="$2"
                 shift 2
+                ;;
+            .)
+                use_current_dir="true"
+                shift
                 ;;
             *)
                 [[ -z "$name" ]] && name="$1"
@@ -60,8 +105,14 @@ cmd_new() {
     print_banner
 
     if [[ -n "$from_file" ]]; then
-        # Non-interactive mode
-        "$SCRIPT_DIR/bootstrap.sh" --from-file "$from_file"
+        # Non-interactive mode - use current directory
+        "$SCRIPT_DIR/bootstrap.sh" --from-file "$from_file" --dir "$(pwd)"
+    elif [[ -n "$use_current_dir" ]]; then
+        # Use current directory
+        local dir_name="$(basename "$(pwd)")"
+        printf "${BOLD}Creating project in current directory: ${dir_name}${NC}\n"
+        echo ""
+        "$SCRIPT_DIR/bootstrap.sh" --name "$dir_name" --dir "$(pwd)"
     else
         # Interactive mode (existing)
         if [[ -z "$name" ]]; then
@@ -73,6 +124,9 @@ cmd_new() {
             printf "${RED}Error: Project name required${NC}\n"
             exit 1
         fi
+
+        validate_project_name "$name"
+        log_verbose "Validated project name: $name"
 
         printf "${BOLD}Creating project: ${name}${NC}\n"
         echo ""
@@ -118,7 +172,7 @@ cmd_attach() {
     if [[ -d "$path" ]]; then
         path="$(cd "$path" && pwd)"
     else
-        printf "${RED}Error: Project path does not exist: $path${NC}\n"
+        printf "${RED}Error: Project path does not exist: %s${NC}\n" "$path"
         exit 1
     fi
 
@@ -128,7 +182,7 @@ cmd_attach() {
     if tmux has-session -t "$session_name" 2>/dev/null; then
         tmux attach -t "$session_name"
     else
-        printf "${RED}Error: No tmux session found: $session_name${NC}\n"
+        printf "${RED}Error: No tmux session found: %s${NC}\n" "$session_name"
         echo ""
         echo "Run 'multiclaude run $path' to start the agent session first."
         exit 1
@@ -173,7 +227,7 @@ cmd_status() {
     if [[ -d "$path" ]]; then
         path="$(cd "$path" && pwd)"
     else
-        printf "${RED}Error: Project path does not exist: $path${NC}\n"
+        printf "${RED}Error: Project path does not exist: %s${NC}\n" "$path"
         exit 1
     fi
 
@@ -284,7 +338,7 @@ cmd_monitor() {
     if [[ -d "$path" ]]; then
         path="$(cd "$path" && pwd)"
     else
-        printf "${RED}Error: Project path does not exist: $path${NC}\n"
+        printf "${RED}Error: Project path does not exist: %s${NC}\n" "$path"
         exit 1
     fi
 
@@ -292,7 +346,7 @@ cmd_monitor() {
     local session_name="claude-${project_name}"
 
     if ! tmux has-session -t "$session_name" 2>/dev/null; then
-        printf "${RED}Error: No tmux session found: $session_name${NC}\n"
+        printf "${RED}Error: No tmux session found: %s${NC}\n" "$session_name"
         echo "Run 'multiclaude run $path' to start the agent session first."
         exit 1
     fi
@@ -301,40 +355,134 @@ cmd_monitor() {
     local first_window
     first_window=$(tmux list-windows -t "$session_name" -F '#{window_index}' | head -1)
 
-    printf "${CYAN}Restarting monitor in $session_name:$first_window...${NC}\n"
+    printf "${CYAN}Restarting monitor in %s:%s...${NC}\n" "$session_name" "$first_window"
     tmux send-keys -t "$session_name:$first_window" C-c
     sleep 0.5
     tmux send-keys -t "$session_name:$first_window" "$SCRIPT_DIR/monitor.sh '$path'" Enter
     tmux attach -t "$session_name:$first_window"
 }
 
+cmd_stop() {
+    local path="${1:-.}"
+
+    if [[ -d "$path" ]]; then
+        path="$(cd "$path" && pwd)"
+    else
+        printf "${RED}Error: Project path does not exist: %s${NC}\n" "$path"
+        exit 1
+    fi
+
+    local project_name="$(basename "$path")"
+    local session_name="claude-${project_name}"
+
+    if tmux has-session -t "$session_name" 2>/dev/null; then
+        tmux kill-session -t "$session_name"
+        printf "${GREEN}Stopped session: %s${NC}\n" "$session_name"
+    else
+        printf "${YELLOW}No running session: %s${NC}\n" "$session_name"
+    fi
+}
+
+cmd_logs() {
+    local path="."
+    local follow=""
+    local agent=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -f|--follow) follow="true"; shift ;;
+            --agent|-a) agent="$2"; shift 2 ;;
+            *) path="$1"; shift ;;
+        esac
+    done
+
+    if [[ -d "$path" ]]; then
+        path="$(cd "$path" && pwd)"
+    else
+        printf "${RED}Error: Project path does not exist: %s${NC}\n" "$path"
+        exit 1
+    fi
+
+    print_banner
+
+    if [[ -n "$agent" ]]; then
+        local log_file="$path/worktrees/feature-$agent/.claude/status.log"
+        if [[ ! -f "$log_file" ]]; then
+            printf "${RED}Error: No log for agent: %s${NC}\n" "$agent"
+            echo "Available agents:"
+            for wt in "$path"/worktrees/feature-*; do
+                [[ -d "$wt" ]] && echo "  - $(basename "$wt" | sed 's/feature-//')"
+            done
+            exit 1
+        fi
+    else
+        local log_file="$path/.claude/mailbox"
+        if [[ ! -f "$log_file" ]]; then
+            printf "${YELLOW}No mailbox found. Showing worker status logs:${NC}\n\n"
+            for wt in "$path"/worktrees/feature-*; do
+                if [[ -d "$wt" ]]; then
+                    local feat=$(basename "$wt" | sed 's/feature-//')
+                    printf "${CYAN}=== %s ===${NC}\n" "$feat"
+                    tail -5 "$wt/.claude/status.log" 2>/dev/null || echo "(no log)"
+                    echo ""
+                fi
+            done
+            exit 0
+        fi
+    fi
+
+    if [[ "$follow" == "true" ]]; then
+        tail -f "$log_file"
+    else
+        tail -50 "$log_file"
+    fi
+}
+
 cmd_install() {
     "$SCRIPT_DIR/install.sh"
 }
 
+# Parse global flags
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --verbose|-V) VERBOSE="true"; shift ;;
+        --dry-run|-n) DRY_RUN="true"; shift ;;
+        *) break ;;
+    esac
+done
+export VERBOSE DRY_RUN
+
 # Parse command
 case "${1:-}" in
-    new|create|init)
+    new|init)
         shift
         cmd_new "$@"
         ;;
-    run|start|loop)
+    run)
         shift
         cmd_run "$@"
         ;;
-    attach|a)
+    stop)
+        shift
+        cmd_stop "$@"
+        ;;
+    attach)
         shift
         cmd_attach "$@"
         ;;
-    add|feature)
+    add)
         shift
         cmd_add "$@"
         ;;
-    status|ps)
+    status)
         shift
         cmd_status "$@"
         ;;
-    monitor|mon)
+    logs)
+        shift
+        cmd_logs "$@"
+        ;;
+    monitor)
         shift
         cmd_monitor "$@"
         ;;
@@ -349,7 +497,7 @@ case "${1:-}" in
         print_usage
         ;;
     *)
-        printf "${RED}Unknown command: $1${NC}\n"
+        printf "${RED}Unknown command: %s${NC}\n" "$1"
         echo ""
         print_usage
         exit 1

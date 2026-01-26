@@ -46,8 +46,8 @@ print_banner() {
 EOF
     printf "${NC}"
     echo ""
-    printf "  Project: ${BOLD}$PROJECT_NAME${NC}\n"
-    printf "  Path:    ${DIM}$PROJECT_PATH${NC}\n"
+    printf "  Project: ${BOLD}%s${NC}\n" "$PROJECT_NAME"
+    printf "  Path:    ${DIM}%s${NC}\n" "$PROJECT_PATH"
     echo ""
 }
 
@@ -274,11 +274,11 @@ launch_agents() {
         printf "  ${DIM}Existing windows: $(echo "$existing_windows" | tr '\n' ' ')${NC}\n"
 
         # Start mailbox watcher in background if not already running
-        if ! pgrep -f "watch_mailbox" >/dev/null 2>&1; then
+        if [[ -z "${MAILBOX_PID:-}" ]] || ! kill -0 "$MAILBOX_PID" 2>/dev/null; then
             log_step "Starting mailbox router..."
             watch_mailbox &
             MAILBOX_PID=$!
-            printf "  ${GREEN}✓${NC} Mailbox router (PID: $MAILBOX_PID)\n"
+            printf "  ${GREEN}✓${NC} Mailbox router (PID: %s)\n" "$MAILBOX_PID"
         fi
         return 0
     fi
@@ -295,6 +295,8 @@ launch_agents() {
 
     tmux new-window -t "$SESSION_NAME" -n "supervisor" \
         "cd '$PROJECT_PATH' && claude --dangerously-skip-permissions"
+    # Lock window name to prevent Claude Code from renaming it
+    tmux set-option -t "$SESSION_NAME:supervisor" allow-rename off
 
     local supervisor_prompt="You are the SUPERVISOR AGENT. Read .claude/SUPERVISOR.md for your complete instructions. You coordinate all workers and the QA agent via the central mailbox at .claude/mailbox. Start by reading your instructions, then monitor worker status logs at worktrees/feature-*/.claude/status.log"
 
@@ -313,6 +315,8 @@ launch_agents() {
 
     tmux new-window -t "$SESSION_NAME" -n "qa" \
         "cd '$PROJECT_PATH' && claude --dangerously-skip-permissions"
+    # Lock window name to prevent Claude Code from renaming it
+    tmux set-option -t "$SESSION_NAME:qa" allow-rename off
 
     local qa_prompt="You are the QA AGENT. Read .claude/QA_INSTRUCTIONS.md for your complete instructions. You MUST WAIT for a RUN_QA signal (delivered via tmux from the mailbox router) before running any tests. Start by reading your instructions, then wait for messages."
 
@@ -335,6 +339,8 @@ launch_agents() {
 
             tmux new-window -t "$SESSION_NAME" -n "$feature" \
                 "cd '$worktree' && MAIN_REPO='$PROJECT_PATH' FEATURE='$feature' claude --dangerously-skip-permissions"
+            # Lock window name to prevent Claude Code from renaming it
+            tmux set-option -t "$SESSION_NAME:$feature" allow-rename off
 
             local worker_prompt="You are a WORKER AGENT implementing the '$feature' feature. Read .claude/WORKER.md for your complete instructions. Your feature spec is in .claude/FEATURE_SPEC.md. Log your status to .claude/status.log. Use the central mailbox at \$MAIN_REPO/.claude/mailbox for communication. Start by reading your instructions."
 
@@ -357,7 +363,7 @@ launch_agents() {
     log_step "Starting mailbox router..."
     watch_mailbox &
     MAILBOX_PID=$!
-    printf "  ${GREEN}✓${NC} Mailbox router (PID: $MAILBOX_PID)\n"
+    printf "  ${GREEN}✓${NC} Mailbox router (PID: %s)\n" "$MAILBOX_PID"
 }
 
 #───────────────────────────────────────────────────────────────────────────────

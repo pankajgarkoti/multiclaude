@@ -13,6 +13,35 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 BOLD='\033[1m'
 
+# Name validation
+validate_project_name() {
+    local name="$1"
+    if [[ ! "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+        printf "${RED}Error: Invalid name '%s'${NC}\n" "$name"
+        echo "Names must start with a letter and contain only letters, numbers, hyphens, underscores."
+        exit 1
+    fi
+    if [[ ${#name} -gt 64 ]]; then
+        printf "${RED}Error: Name too long (max 64 chars)${NC}\n"
+        exit 1
+    fi
+}
+
+# Progress spinner
+_spinner() {
+    local pid=$1
+    local msg="${2:-Working...}"
+    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    tput civis 2>/dev/null  # Hide cursor
+    while kill -0 "$pid" 2>/dev/null; do
+        printf "\r${CYAN}%s${NC} %s" "${spin:i++%${#spin}:1}" "$msg"
+        sleep 0.1
+    done
+    tput cnorm 2>/dev/null  # Show cursor
+    printf "\r%-$((${#msg}+3))s\r" " "  # Clear line
+}
+
 run_claude_until_complete() {
     local prompt="$1"
     local completion_id="$2"
@@ -974,17 +1003,17 @@ This project uses a parallelized development workflow with multiple Claude Code 
 # Run the full development loop (orchestrator + workers)
 multiclaude run .
 
-# Or step by step:
-multiclaude run . --setup-only    # Setup worktrees
-multiclaude run . --workers-only  # Launch workers in tmux
-multiclaude run . --loop-only     # Run orchestrator loop
+# Auto-create GitHub PR when QA passes
+multiclaude run . --auto-pr
 
 # Check status anytime
 multiclaude status .
 
-# Manual merge and QA (usually handled by orchestrator)
-multiclaude merge .
-multiclaude qa .
+# View logs/mailbox
+multiclaude logs .
+
+# Stop the session
+multiclaude stop .
 \`\`\`
 
 ## Project Structure
@@ -1362,22 +1391,27 @@ extract_features_from_plan() {
 
 run_noninteractive() {
     local brief_file="$1"
+    local project_dir="$2"
 
     if [[ ! -f "$brief_file" ]]; then
         log_error "File not found: $brief_file"
         exit 1
     fi
 
-    # Convert to absolute path
+    # Convert brief to absolute path
     brief_file="$(cd "$(dirname "$brief_file")" && pwd)/$(basename "$brief_file")"
 
-    # Derive project name from brief filename
-    local project_name
-    project_name=$(basename "$brief_file" .txt | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+    # Use provided directory or current directory
+    if [[ -z "$project_dir" ]]; then
+        project_dir="$(pwd)"
+    fi
 
-    local project_dir="$(pwd)/$project_name"
+    # Convert to absolute path
+    project_dir="$(cd "$project_dir" && pwd)"
 
-    log_info "Creating project directory: $project_dir"
+    local project_name="$(basename "$project_dir")"
+
+    log_info "Setting up project in: $project_dir"
 
     # Create minimal structure
     mkdir -p "$project_dir/.claude"
@@ -1414,8 +1448,19 @@ Read `.claude/project-brief.txt` for the project requirements.
 Say "SETUP_COMPLETE" and list the files you created.
 SETUP_EOF
 
-    # Create .gitignore
-    cat > "$project_dir/.gitignore" << 'EOF'
+    # Update .gitignore (append if exists, create if not)
+    if [[ -f "$project_dir/.gitignore" ]]; then
+        if ! grep -q "worktrees/" "$project_dir/.gitignore" 2>/dev/null; then
+            cat >> "$project_dir/.gitignore" << 'EOF'
+
+# Multiclaude
+worktrees/
+.claude/cache/
+.claude/tmp/
+EOF
+        fi
+    else
+        cat > "$project_dir/.gitignore" << 'EOF'
 # Worktrees (managed separately)
 worktrees/
 
@@ -1454,9 +1499,11 @@ Thumbs.db
 .claude/cache/
 .claude/tmp/
 EOF
+    fi
 
-    # Create MCP config
-    cat > "$project_dir/.claude/settings.json" << 'EOF'
+    # Create MCP config (only if not exists)
+    if [[ ! -f "$project_dir/.claude/settings.json" ]]; then
+        cat > "$project_dir/.claude/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": [
@@ -1476,8 +1523,10 @@ EOF
   }
 }
 EOF
+    fi
 
-    cat > "$project_dir/.mcp.json" << 'EOF'
+    if [[ ! -f "$project_dir/.mcp.json" ]]; then
+        cat > "$project_dir/.mcp.json" << 'EOF'
 {
   "mcpServers": {
     "context7": {
@@ -1497,11 +1546,14 @@ EOF
   }
 }
 EOF
+    fi
 
-    # Initialize git
+    # Initialize git (only if not already a git repo)
     cd "$project_dir"
-    git init -q
-    git checkout -q -b main
+    if [[ ! -d ".git" ]]; then
+        git init -q
+        git checkout -q -b main
+    fi
 
     # Create tmux session
     local session_name="claude-${project_name}-setup"
@@ -1524,6 +1576,19 @@ EOF
 }
 
 main() {
+    # Cleanup trap for interrupted bootstrap
+    _bootstrap_cleanup() {
+        local exit_code=$?
+        [[ -n "${claude_pid:-}" ]] && kill "$claude_pid" 2>/dev/null
+        [[ -n "${pipe:-}" ]] && rm -f "$pipe"
+        [[ -n "${pipe_dir:-}" ]] && rmdir "$pipe_dir" 2>/dev/null
+        [[ -n "${output_file:-}" ]] && rm -f "$output_file"
+        if [[ $exit_code -ne 0 ]]; then
+            printf "\n${YELLOW}Bootstrap interrupted. Partial files may remain.${NC}\n"
+        fi
+    }
+    trap _bootstrap_cleanup EXIT INT TERM
+
     # Parse command line arguments
     local arg_name=""
     local arg_dir=""
@@ -1563,7 +1628,7 @@ main() {
 
     # Non-interactive mode - run in tmux
     if [[ -n "$arg_from_file" ]]; then
-        run_noninteractive "$arg_from_file"
+        run_noninteractive "$arg_from_file" "$arg_dir"
         exit 0
     fi
 
@@ -1576,6 +1641,8 @@ main() {
     else
         project_name=$(prompt_input "Project name" "my-project")
     fi
+
+    validate_project_name "$project_name"
 
     local project_dir
     if [[ -n "$arg_dir" ]]; then
