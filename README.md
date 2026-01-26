@@ -45,10 +45,16 @@ Optional:
 ## Quick Start
 
 ```bash
-# Create a new project
+# Create a new project in subdirectory
 multiclaude new my-app
 
-# Or add a feature to any existing git repo
+# Or create project in current directory
+multiclaude new .
+
+# Or create from a brief file (uses current directory)
+multiclaude new -f project-brief.txt
+
+# Add a feature to any existing git repo
 cd existing-repo
 multiclaude add auth
 
@@ -59,15 +65,27 @@ multiclaude run .
 multiclaude run . --auto-pr
 ```
 
+### Project Naming
+
+Project and feature names should:
+- Start with a letter
+- Contain only letters, numbers, hyphens, underscores
+- Be 64 characters or less
+
+Examples: `my-app`, `todo_list`, `ApiServer2`
+
 ## Usage
 
 ### New Project
 
 ```bash
-# Interactive - prompts for details
+# Create in new subdirectory
 multiclaude new my-app
 
-# Non-interactive - reads from brief file
+# Create in current directory
+multiclaude new .
+
+# Create from brief file (uses current directory)
 multiclaude new -f project-brief.txt
 ```
 
@@ -90,6 +108,35 @@ multiclaude add -f feature-brief.txt
 
 Works on any git repo - automatically bootstraps the `specs/` structure if it doesn't exist.
 
+#### Non-Interactive Mode for External Invokers
+
+When using `-f` flag, the command returns immediately while setup runs in a background tmux session. External invokers (CI/CD, scripts, other tools) can poll for completion:
+
+```bash
+# Start feature addition (returns immediately)
+multiclaude add -f feature-brief.txt
+
+# Poll for completion
+FEATURE_NAME="feature-brief"  # derived from filename
+while true; do
+    if test -f .claude/FEATURE_READY_${FEATURE_NAME}; then
+        echo "Feature ready!"
+        break
+    elif test -f .claude/FEATURE_FAILED_${FEATURE_NAME}; then
+        echo "Feature setup failed!"
+        exit 1
+    fi
+    sleep 5
+done
+
+# Feature is now ready - worktree created, spec generated
+multiclaude run .
+```
+
+**Marker files created:**
+- `.claude/FEATURE_READY_<name>` - Feature spec and worktree created successfully
+- `.claude/FEATURE_FAILED_<name>` - Setup failed (check tmux session for details)
+
 ### Run Development Session
 
 ```bash
@@ -97,6 +144,22 @@ multiclaude run ./my-app
 
 # Auto-create GitHub PR when QA passes (requires gh CLI)
 multiclaude run ./my-app --auto-pr
+```
+
+### Stop Session
+
+```bash
+multiclaude stop ./my-app
+```
+
+Gracefully terminates the tmux session and all agents.
+
+### View Logs
+
+```bash
+multiclaude logs ./my-app              # View mailbox
+multiclaude logs ./my-app -f           # Follow mailbox
+multiclaude logs ./my-app --agent auth # View auth worker log
 ```
 
 Creates a tmux session with multiple windows:
@@ -202,7 +265,9 @@ my-project/
 │   ├── ALL_MERGED             # Marker: all features merged to main
 │   ├── QA_COMPLETE            # Marker: QA passed
 │   ├── QA_NEEDS_FIXES         # Marker: QA found issues
-│   └── PROJECT_COMPLETE       # Marker: project finished
+│   ├── PROJECT_COMPLETE       # Marker: project finished
+│   ├── FEATURE_READY_*        # Marker: feature setup complete (for external invokers)
+│   └── FEATURE_FAILED_*       # Marker: feature setup failed (for external invokers)
 ├── specs/
 │   ├── PROJECT_SPEC.md        # Architecture spec (informed by research)
 │   ├── STANDARDS.md           # Quality standards for QA verification

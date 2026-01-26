@@ -21,6 +21,19 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+validate_feature_name() {
+    local name="$1"
+    if [[ ! "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+        printf "${RED}Error: Invalid feature name '%s'${NC}\n" "$name"
+        echo "Names must start with a letter and contain only letters, numbers, hyphens, underscores."
+        exit 1
+    fi
+    if [[ ${#name} -gt 64 ]]; then
+        printf "${RED}Error: Name too long (max 64 chars)${NC}\n"
+        exit 1
+    fi
+}
+
 # Parse arguments
 PROJECT_PATH="${1:-.}"
 shift || true
@@ -96,15 +109,24 @@ Read the feature brief at \`.claude/feature-brief-${FEATURE_NAME}.txt\`
 3. Say "FEATURE_SPEC_COMPLETE" when done
 EOF
 
-    # Run in tmux
+    # Marker files for external invokers to poll
+    READY_MARKER="$PROJECT_PATH/.claude/FEATURE_READY_${FEATURE_NAME}"
+    FAILED_MARKER="$PROJECT_PATH/.claude/FEATURE_FAILED_${FEATURE_NAME}"
+    rm -f "$READY_MARKER" "$FAILED_MARKER" 2>/dev/null
+
+    # Run in tmux using claude -p (print mode) which exits after completion
     tmux new-session -d -s "$SETUP_SESSION" -n "add-feature" \
-        "cd '$PROJECT_PATH' && claude 'Read .claude/add-feature-instructions.md and create the feature spec. Say FEATURE_SPEC_COMPLETE when done.' --dangerously-skip-permissions; \
-         echo 'Spec created. Creating worktree...'; \
-         '$SCRIPT_DIR/feature.sh' '$PROJECT_PATH' '$FEATURE_NAME' --spec-only; \
-         echo 'Done! Press Enter to close...'; read"
+        "cd '$PROJECT_PATH' && \
+         claude -p 'Read .claude/add-feature-instructions.md and create the feature spec.' --dangerously-skip-permissions && \
+         echo 'Spec created. Creating worktree...' && \
+         '$SCRIPT_DIR/feature.sh' '$PROJECT_PATH' '$FEATURE_NAME' --spec-only && \
+         touch '$READY_MARKER' && \
+         echo 'Feature ready: $FEATURE_NAME' || \
+         (touch '$FAILED_MARKER' && echo 'Feature setup failed: $FEATURE_NAME' && exit 1)"
 
     log_success "Feature setup session: $SETUP_SESSION"
     echo "Attach: tmux attach -t $SETUP_SESSION"
+    echo "Poll:   test -f $READY_MARKER && echo 'ready'"
     exit 0
 fi
 
@@ -116,6 +138,8 @@ if [[ -z "$FEATURE_NAME" ]]; then
 fi
 
 FEATURE_NAME=$(echo "$FEATURE_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+
+validate_feature_name "$FEATURE_NAME"
 
 echo -e "${CYAN}═══════════════════════════════════════════${NC}"
 echo -e "${BOLD}    ADD FEATURE TO PROJECT${NC}"
