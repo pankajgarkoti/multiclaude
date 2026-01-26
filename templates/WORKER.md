@@ -327,6 +327,7 @@ Commit after:
 5. **Keep waiting after COMPLETE** - You may get fix tasks
 6. **Use the mailbox** - Never use tmux send-keys directly
 7. **Use $MAIN_REPO** - Mailbox is in the main repo, not your worktree
+8. **Respond to /exit** - When you receive `/exit` via message, your session will terminate. This is expected behavior when the project is complete.
 
 ---
 
