@@ -110,32 +110,36 @@ Works on any git repo - automatically bootstraps the `specs/` structure if it do
 
 #### Non-Interactive Mode for External Invokers
 
-When using `-f` flag, the command returns immediately while setup runs in a background tmux session. External invokers (CI/CD, scripts, other tools) can poll for completion:
+When using `-f` flag, the command returns immediately while the full pipeline runs in background tmux sessions. External invokers (CI/CD, scripts, other tools) only need one command:
 
 ```bash
-# Start feature addition (returns immediately)
+# Start feature addition + development (returns immediately)
 multiclaude add -f feature-brief.txt
 
-# Poll for completion
-FEATURE_NAME="feature-brief"  # derived from filename
+# Poll for project completion
 while true; do
-    if test -f .claude/FEATURE_READY_${FEATURE_NAME}; then
-        echo "Feature ready!"
+    if test -f .claude/PROJECT_COMPLETE; then
+        echo "Done! Feature implemented and QA passed."
         break
-    elif test -f .claude/FEATURE_FAILED_${FEATURE_NAME}; then
-        echo "Feature setup failed!"
+    elif test -f .claude/FEATURE_FAILED_*; then
+        echo "Setup failed!"
         exit 1
     fi
-    sleep 5
+    sleep 30
 done
-
-# Feature is now ready - worktree created, spec generated
-multiclaude run .
 ```
 
-**Marker files created:**
-- `.claude/FEATURE_READY_<name>` - Feature spec and worktree created successfully
-- `.claude/FEATURE_FAILED_<name>` - Setup failed (check tmux session for details)
+**What happens automatically:**
+1. Creates feature spec (Claude analyzes brief)
+2. Creates git worktree
+3. Starts development session with workers, supervisor, QA
+4. Workers implement, supervisor coordinates, QA validates
+5. Creates `PROJECT_COMPLETE` when done
+
+**Marker files:**
+- `.claude/FEATURE_READY_<name>` - Feature setup complete, dev session starting
+- `.claude/FEATURE_FAILED_<name>` - Setup failed
+- `.claude/PROJECT_COMPLETE` - Implementation done, QA passed
 
 ### Run Development Session
 

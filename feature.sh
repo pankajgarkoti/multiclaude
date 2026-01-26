@@ -114,19 +114,34 @@ EOF
     FAILED_MARKER="$PROJECT_PATH/.claude/FEATURE_FAILED_${FEATURE_NAME}"
     rm -f "$READY_MARKER" "$FAILED_MARKER" 2>/dev/null
 
+    # Development session name (same as multiclaude run uses)
+    DEV_SESSION="claude-${PROJECT_NAME}"
+
     # Run in tmux using claude -p (print mode) which exits after completion
+    # After feature setup, automatically starts the development loop
     tmux new-session -d -s "$SETUP_SESSION" -n "add-feature" \
         "cd '$PROJECT_PATH' && \
          claude -p 'Read .claude/add-feature-instructions.md and create the feature spec.' --dangerously-skip-permissions && \
          echo 'Spec created. Creating worktree...' && \
          '$SCRIPT_DIR/feature.sh' '$PROJECT_PATH' '$FEATURE_NAME' --spec-only && \
          touch '$READY_MARKER' && \
-         echo 'Feature ready: $FEATURE_NAME' || \
+         echo 'Feature ready: $FEATURE_NAME' && \
+         echo 'Starting development session...' && \
+         tmux new-session -d -s '$DEV_SESSION' -n 'monitor' \
+             \"cd '$PROJECT_PATH' && '$SCRIPT_DIR/monitor.sh' '$PROJECT_PATH'\" && \
+         echo 'Development session started: $DEV_SESSION' && \
+         echo 'Poll for PROJECT_COMPLETE or attach: tmux attach -t $DEV_SESSION' || \
          (touch '$FAILED_MARKER' && echo 'Feature setup failed: $FEATURE_NAME' && exit 1)"
 
     log_success "Feature setup session: $SETUP_SESSION"
-    echo "Attach: tmux attach -t $SETUP_SESSION"
-    echo "Poll:   test -f $READY_MARKER && echo 'ready'"
+    echo ""
+    echo "This will:"
+    echo "  1. Create feature spec (Claude)"
+    echo "  2. Create git worktree"
+    echo "  3. Start development session: $DEV_SESSION"
+    echo ""
+    echo "Poll:   test -f .claude/PROJECT_COMPLETE && echo 'done'"
+    echo "Attach: tmux attach -t $DEV_SESSION"
     exit 0
 fi
 
