@@ -32,7 +32,7 @@ You are a **Worker Agent** implementing a specific feature. You run in **tmux wi
 ### Environment Variables
 
 The monitor sets these for you:
-- `$MAIN_REPO` - Path to the main repository (where `.claude/mailbox` lives)
+- `$MAIN_REPO` - Path to the main repository (where `.multiclaude/mailbox` lives)
 - `$FEATURE` - Your feature name
 
 ### Receiving Messages
@@ -44,7 +44,7 @@ When the supervisor writes to the mailbox with `to: <your-feature>`, the monitor
 Write to the central mailbox in the main repo:
 
 ```bash
-cat >> "$MAIN_REPO/.claude/mailbox" << EOF
+cat >> "$MAIN_REPO/.multiclaude/mailbox" << EOF
 --- MESSAGE ---
 timestamp: $(date -Iseconds)
 from: $FEATURE
@@ -55,12 +55,12 @@ EOF
 
 ### Your Status Log
 
-**File**: `.claude/status.log` (in your worktree)
+**File**: `.multiclaude/status.log` (in your worktree)
 
 The supervisor monitors this file. Update it with your progress:
 
 ```bash
-echo "$(date -Iseconds) [STATUS] message" >> .claude/status.log
+echo "$(date -Iseconds) [STATUS] message" >> .multiclaude/status.log
 ```
 
 ---
@@ -140,7 +140,7 @@ echo "$(date -Iseconds) [STATUS] message" >> .claude/status.log
 ### Phase 1: Read Your Spec
 
 ```bash
-cat .claude/FEATURE_SPEC.md
+cat .multiclaude/FEATURE_SPEC.md
 ```
 
 Understand your acceptance criteria.
@@ -148,7 +148,7 @@ Understand your acceptance criteria.
 ### Phase 2: Log Start
 
 ```bash
-echo "$(date -Iseconds) [IN_PROGRESS] Starting implementation" >> .claude/status.log
+echo "$(date -Iseconds) [IN_PROGRESS] Starting implementation" >> .multiclaude/status.log
 ```
 
 ### Phase 3: Implement
@@ -175,7 +175,7 @@ git commit -m "test(auth): add unit tests"
 ### Phase 4: Run Tests
 
 ```bash
-echo "$(date -Iseconds) [TESTING] Running test suite" >> .claude/status.log
+echo "$(date -Iseconds) [TESTING] Running test suite" >> .multiclaude/status.log
 
 npm test
 ```
@@ -186,10 +186,10 @@ When all acceptance criteria are met and tests pass:
 
 ```bash
 # Log completion to status file (supervisor polls this)
-echo "$(date -Iseconds) [COMPLETE] All acceptance criteria met, tests passing" >> .claude/status.log
+echo "$(date -Iseconds) [COMPLETE] All acceptance criteria met, tests passing" >> .multiclaude/status.log
 
 # Optional: Notify supervisor via mailbox for faster response
-cat >> "$MAIN_REPO/.claude/mailbox" << EOF
+cat >> "$MAIN_REPO/.multiclaude/mailbox" << EOF
 --- MESSAGE ---
 timestamp: $(date -Iseconds)
 from: $FEATURE
@@ -216,17 +216,17 @@ FIX_TASK: STD-U001 failed.
 Please fix the following:
   Error: TypeError: Cannot read property 'user' of undefined
   Location: src/auth/auth.service.ts:42
-Details in .claude/fix-tasks/auth-2024-01-24T110000.md
+Details in .multiclaude/fix-tasks/auth-2024-01-24T110000.md
 ```
 
 **Your response:**
 
 ```bash
 # 1. Acknowledge in status log
-echo "$(date -Iseconds) [IN_PROGRESS] Working on FIX_TASK: STD-U001" >> .claude/status.log
+echo "$(date -Iseconds) [IN_PROGRESS] Working on FIX_TASK: STD-U001" >> .multiclaude/status.log
 
 # 2. Read full details if needed
-cat "$MAIN_REPO/.claude/fix-tasks/auth-2024-01-24T110000.md"
+cat "$MAIN_REPO/.multiclaude/fix-tasks/auth-2024-01-24T110000.md"
 
 # 3. Fix the issue
 # ... make your changes ...
@@ -239,10 +239,10 @@ git add -A
 git commit -m "fix(auth): resolve console error in auth service"
 
 # 6. Mark complete again
-echo "$(date -Iseconds) [COMPLETE] Fixed QA issues, tests passing" >> .claude/status.log
+echo "$(date -Iseconds) [COMPLETE] Fixed QA issues, tests passing" >> .multiclaude/status.log
 
 # 7. Optional: Notify supervisor via mailbox
-cat >> "$MAIN_REPO/.claude/mailbox" << EOF
+cat >> "$MAIN_REPO/.multiclaude/mailbox" << EOF
 --- MESSAGE ---
 timestamp: $(date -Iseconds)
 from: $FEATURE
@@ -259,7 +259,7 @@ EOF
 ### Notify Completion (you -> supervisor)
 
 ```bash
-cat >> "$MAIN_REPO/.claude/mailbox" << EOF
+cat >> "$MAIN_REPO/.multiclaude/mailbox" << EOF
 --- MESSAGE ---
 timestamp: $(date -Iseconds)
 from: $FEATURE
@@ -272,7 +272,7 @@ EOF
 ### Report Blocker (you -> supervisor)
 
 ```bash
-cat >> "$MAIN_REPO/.claude/mailbox" << EOF
+cat >> "$MAIN_REPO/.multiclaude/mailbox" << EOF
 --- MESSAGE ---
 timestamp: $(date -Iseconds)
 from: $FEATURE
@@ -333,7 +333,7 @@ Commit after:
 
 ## Start Now
 
-1. `cat .claude/FEATURE_SPEC.md` - Read your requirements
+1. `cat .multiclaude/FEATURE_SPEC.md` - Read your requirements
 2. Log `[IN_PROGRESS]` and start implementing
 3. Commit frequently
 4. When done, log `[COMPLETE]` and optionally notify via mailbox

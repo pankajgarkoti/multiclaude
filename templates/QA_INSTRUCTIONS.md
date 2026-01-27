@@ -35,7 +35,7 @@ You are a **tester only**. You must NEVER:
 - Starting/stopping the dev server
 - Interacting with the app via browser (click, type, navigate)
 - Reading specs and standards
-- Writing QA reports to `.claude/qa-reports/`
+- Writing QA reports to `.multiclaude/qa-reports/`
 - Writing to the mailbox to signal the supervisor
 - Creating marker files (QA_COMPLETE, QA_NEEDS_FIXES)
 
@@ -57,7 +57,7 @@ If you find an issue, document WHAT is broken from a user's perspective, not HOW
 
 ## Communication Protocol
 
-**All agents communicate via the central mailbox (`.claude/mailbox`).**
+**All agents communicate via the central mailbox (`.multiclaude/mailbox`).**
 
 ### Receiving Messages
 
@@ -68,7 +68,7 @@ When the supervisor writes to the mailbox with `to: qa`, the monitor routes the 
 Write to the central mailbox to signal the supervisor:
 
 ```bash
-cat >> .claude/mailbox << EOF
+cat >> .multiclaude/mailbox << EOF
 --- MESSAGE ---
 timestamp: $(date -Iseconds)
 from: qa
@@ -118,7 +118,7 @@ EOF
 |         |                                         |            |
 |         v                                         |            |
 |  +-------------+                                  |            |
-|  | Signal      | --> Write to .claude/mailbox     |            |
+|  | Signal      | --> Write to .multiclaude/mailbox     |            |
 |  | Supervisor  |                                  |            |
 |  +------+------+                                  |            |
 |         |                                         |            |
@@ -167,7 +167,7 @@ echo "App should be running at http://localhost:3000 (or configured port)"
 ### Phase 3: Read the Standards
 
 ```bash
-cat specs/STANDARDS.md
+cat .multiclaude/specs/STANDARDS.md
 ```
 
 Understand every user flow you need to test.
@@ -234,9 +234,9 @@ Create a timestamped report:
 
 ```bash
 TIMESTAMP=$(date +%Y-%m-%dT%H%M%S)
-REPORT_FILE=".claude/qa-reports/qa-report-${TIMESTAMP}.json"
+REPORT_FILE=".multiclaude/qa-reports/qa-report-${TIMESTAMP}.json"
 
-mkdir -p .claude/qa-reports
+mkdir -p .multiclaude/qa-reports
 
 cat > "$REPORT_FILE" << EOF
 {
@@ -266,7 +266,7 @@ cat > "$REPORT_FILE" << EOF
 }
 EOF
 
-ln -sf "qa-report-${TIMESTAMP}.json" .claude/qa-reports/latest.json
+ln -sf "qa-report-${TIMESTAMP}.json" .multiclaude/qa-reports/latest.json
 ```
 
 ### Phase 6: Signal Supervisor
@@ -274,9 +274,9 @@ ln -sf "qa-report-${TIMESTAMP}.json" .claude/qa-reports/latest.json
 **If ALL standards pass:**
 
 ```bash
-echo "$(date -Iseconds)" > .claude/QA_COMPLETE
+echo "$(date -Iseconds)" > .multiclaude/QA_COMPLETE
 
-cat >> .claude/mailbox << EOF
+cat >> .multiclaude/mailbox << EOF
 --- MESSAGE ---
 timestamp: $(date -Iseconds)
 from: qa
@@ -294,9 +294,9 @@ echo "QA PASSED - Supervisor notified"
 ```bash
 failed_count=$(grep -c '"pass": false' "$REPORT_FILE")
 
-echo "$(date -Iseconds) - $failed_count standards failed" > .claude/QA_NEEDS_FIXES
+echo "$(date -Iseconds) - $failed_count standards failed" > .multiclaude/QA_NEEDS_FIXES
 
-cat >> .claude/mailbox << EOF
+cat >> .multiclaude/mailbox << EOF
 --- MESSAGE ---
 timestamp: $(date -Iseconds)
 from: qa

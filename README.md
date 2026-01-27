@@ -91,7 +91,7 @@ multiclaude new -f project-brief.txt
 
 This runs a bootstrap process that:
 
-1. **Research Phase**: Claude researches similar products by browsing URLs mentioned in your description and finding 2-3 competitors. Captures UI/UX patterns and best practices into `.claude/research-findings.md`
+1. **Research Phase**: Claude researches similar products by browsing URLs mentioned in your description and finding 2-3 competitors. Captures UI/UX patterns and best practices into `.multiclaude/research-findings.md`
 2. **Planning Phase**: Claude creates project specs (`specs/PROJECT_SPEC.md`) and individual feature specs (`specs/features/*.spec.md`) informed by research findings
 3. **Standards Generation**: Project-specific quality standards are generated in `specs/STANDARDS.md`
 4. **Development Loop**: Optionally launches the development session
@@ -118,10 +118,10 @@ multiclaude add -f feature-brief.txt
 
 # Poll for project completion
 while true; do
-    if test -f .claude/PROJECT_COMPLETE; then
+    if test -f .multiclaude/PROJECT_COMPLETE; then
         echo "Done! Feature implemented and QA passed."
         break
-    elif test -f .claude/FEATURE_FAILED_*; then
+    elif test -f .multiclaude/FEATURE_FAILED_*; then
         echo "Setup failed!"
         exit 1
     fi
@@ -137,9 +137,9 @@ done
 5. Creates `PROJECT_COMPLETE` when done
 
 **Marker files:**
-- `.claude/FEATURE_READY_<name>` - Feature setup complete, dev session starting
-- `.claude/FEATURE_FAILED_<name>` - Setup failed
-- `.claude/PROJECT_COMPLETE` - Implementation done, QA passed
+- `.multiclaude/FEATURE_READY_<name>` - Feature setup complete, dev session starting
+- `.multiclaude/FEATURE_FAILED_<name>` - Setup failed
+- `.multiclaude/PROJECT_COMPLETE` - Implementation done, QA passed
 
 ### Run Development Session
 
@@ -216,7 +216,7 @@ When creating a new project with `multiclaude new`, an interactive research phas
 1. **Analyzes Project Description**: Extracts URLs, product references, and domain terminology
 2. **Browses Referenced URLs**: Uses WebFetch to analyze mentioned products/services
 3. **Researches Similar Products**: Searches for and analyzes 2-3 competitors in the domain
-4. **Documents Findings**: Creates `.claude/research-findings.md` with UI/UX patterns, features, and recommendations
+4. **Documents Findings**: Creates `.multiclaude/research-findings.md` with UI/UX patterns, features, and recommendations
 
 ### Providing References for Better Results
 
@@ -231,7 +231,7 @@ multiclaude new my-app
 
 ### Research Output
 
-Research findings inform the planning phase and are saved to `.claude/research-findings.md`.
+Research findings inform the planning phase and are saved to `.multiclaude/research-findings.md`.
 
 ## Monitor Dashboard
 
@@ -258,7 +258,7 @@ Ctrl+b d    Detach (agents keep running)
 
 ```
 my-project/
-├── .claude/
+├── .multiclaude/
 │   ├── settings.json          # Claude permissions
 │   ├── research-findings.md   # Research phase output (UI/UX insights)
 │   ├── mailbox                # Central message bus for agent communication
@@ -271,19 +271,19 @@ my-project/
 │   ├── QA_NEEDS_FIXES         # Marker: QA found issues
 │   ├── PROJECT_COMPLETE       # Marker: project finished
 │   ├── FEATURE_READY_*        # Marker: feature setup complete (for external invokers)
-│   └── FEATURE_FAILED_*       # Marker: feature setup failed (for external invokers)
-├── specs/
-│   ├── PROJECT_SPEC.md        # Architecture spec (informed by research)
-│   ├── STANDARDS.md           # Quality standards for QA verification
-│   ├── .features              # Feature list (one per line)
-│   └── features/
-│       └── *.spec.md          # Individual feature specs
-├── worktrees/
-│   └── feature-*/             # Isolated git worktrees per feature
-│       └── .claude/
-│           ├── status.log     # Worker status updates
-│           ├── WORKER.md      # Worker instructions
-│           └── FEATURE_SPEC.md # Copy of feature specification
+│   ├── FEATURE_FAILED_*       # Marker: feature setup failed (for external invokers)
+│   ├── specs/
+│   │   ├── PROJECT_SPEC.md    # Architecture spec (informed by research)
+│   │   ├── STANDARDS.md       # Quality standards for QA verification
+│   │   ├── .features          # Feature list (one per line)
+│   │   └── features/
+│   │       └── *.spec.md      # Individual feature specs
+│   └── worktrees/
+│       └── feature-*/         # Isolated git worktrees per feature
+│           └── .multiclaude/
+│               ├── status.log     # Worker status updates
+│               ├── WORKER.md      # Worker instructions
+│               └── FEATURE_SPEC.md # Copy of feature specification
 ├── src/                       # Source code (stub modules created per feature)
 ├── CLAUDE.md                  # Project-wide Claude instructions
 └── .mcp.json                  # MCP server configuration
@@ -291,7 +291,7 @@ my-project/
 
 ## Agent Communication
 
-Agents communicate via a **central mailbox** (`.claude/mailbox`). The monitor script watches the mailbox and routes messages to the appropriate agent window via tmux.
+Agents communicate via a **central mailbox** (`.multiclaude/mailbox`). The monitor script watches the mailbox and routes messages to the appropriate agent window via tmux.
 
 ### Message Format
 
@@ -312,7 +312,7 @@ Can be multiple lines.
 │                                                                 │
 │  ┌─────────┐     writes      ┌──────────────┐                   │
 │  │  Agent  │ ─────────────▶  │   MAILBOX    │                   │
-│  │  (any)  │                 │.claude/mailbox│                  │
+│  │  (any)  │                 │.multiclaude/mailbox│                  │
 │  └─────────┘                 └──────┬───────┘                   │
 │                                     │                           │
 │                                     │ watches (every 2s)        │
@@ -334,7 +334,7 @@ Can be multiple lines.
 
 ### Status Codes
 
-Workers log status to `.claude/status.log` in the format: `<timestamp> [STATUS] message`
+Workers log status to `.multiclaude/status.log` in the format: `<timestamp> [STATUS] message`
 
 | Status        | Meaning                    |
 | ------------- | -------------------------- |
@@ -366,7 +366,7 @@ rm -rf worktrees/feature-<name>
 
 ```bash
 # View recent messages
-tail -50 .claude/mailbox
+tail -50 .multiclaude/mailbox
 ```
 
 ### Monitor Not Running

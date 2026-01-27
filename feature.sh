@@ -8,6 +8,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source shared phases library
+source "$SCRIPT_DIR/phases.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -78,51 +81,60 @@ if [[ -n "$FROM_FILE" ]]; then
     log_info "Adding feature from brief: $FEATURE_NAME"
 
     # Bootstrap specs structure if it doesn't exist
-    if [[ ! -d "$PROJECT_PATH/specs" ]]; then
+    if [[ ! -d "$PROJECT_PATH/.multiclaude/specs" ]]; then
         log_info "Bootstrapping multiclaude structure..."
-        mkdir -p "$PROJECT_PATH/specs/features"
-        touch "$PROJECT_PATH/specs/.features"
+        mkdir -p "$PROJECT_PATH/.multiclaude/specs/features"
+        touch "$PROJECT_PATH/.multiclaude/specs/.features"
     fi
 
     # Copy brief to project
-    mkdir -p "$PROJECT_PATH/.claude"
-    cp "$FROM_FILE" "$PROJECT_PATH/.claude/feature-brief-${FEATURE_NAME}.txt"
+    mkdir -p "$PROJECT_PATH/.multiclaude"
+    cp "$FROM_FILE" "$PROJECT_PATH/.multiclaude/feature-brief-${FEATURE_NAME}.txt"
 
     # Create tmux session for feature setup
     SETUP_SESSION="claude-${PROJECT_NAME}-add-${FEATURE_NAME}"
 
-    # Create instructions for feature creation
-    cat > "$PROJECT_PATH/.claude/add-feature-instructions.md" << EOF
-# Add Feature: ${FEATURE_NAME}
+    # Create a bare spec from the brief so run_spec_phase can enrich it
+    local brief_content
+    brief_content="$(cat "$FROM_FILE")"
+    cat > "$PROJECT_PATH/.multiclaude/specs/features/${FEATURE_NAME}.spec.md" << EOF
+# Feature Specification: ${FEATURE_NAME}
 
-Read the feature brief at \`.claude/feature-brief-${FEATURE_NAME}.txt\`
+## Meta
+- **Feature ID**: FEAT-$(date +%Y%m%d%H%M)
+- **Created**: $(date +%Y-%m-%d)
 
-## Tasks
-1. Create \`specs/features/${FEATURE_NAME}.spec.md\` with:
-   - Overview from the brief
-   - Acceptance criteria
-   - Technical requirements
-   - Definition of done
+## Overview
+${brief_content}
 
-2. Add "${FEATURE_NAME}" to \`specs/.features\` (if not already there)
+## Acceptance Criteria
+- [ ] AC-1: TODO - define acceptance criteria
 
-3. Say "FEATURE_SPEC_COMPLETE" when done
+## Technical Notes
+<!-- To be enriched by spec phase -->
+
+## Definition of Done
+- [ ] All acceptance criteria met
+- [ ] Tests passing
+- [ ] Status logged as COMPLETE
 EOF
 
+    # Add to features registry
+    if ! grep -qx "$FEATURE_NAME" "$PROJECT_PATH/.multiclaude/specs/.features" 2>/dev/null; then
+        echo "$FEATURE_NAME" >> "$PROJECT_PATH/.multiclaude/specs/.features"
+    fi
+
     # Marker files for external invokers to poll
-    READY_MARKER="$PROJECT_PATH/.claude/FEATURE_READY_${FEATURE_NAME}"
-    FAILED_MARKER="$PROJECT_PATH/.claude/FEATURE_FAILED_${FEATURE_NAME}"
+    READY_MARKER="$PROJECT_PATH/.multiclaude/FEATURE_READY_${FEATURE_NAME}"
+    FAILED_MARKER="$PROJECT_PATH/.multiclaude/FEATURE_FAILED_${FEATURE_NAME}"
     rm -f "$READY_MARKER" "$FAILED_MARKER" 2>/dev/null
 
     # Development session name (same as multiclaude run uses)
     DEV_SESSION="claude-${PROJECT_NAME}"
 
-    # Run in tmux using claude -p (print mode) which exits after completion
-    # After feature setup, automatically starts the development loop
+    # Run in tmux: create worktree, then start dev session (spec enrichment happens in monitor.sh)
     tmux new-session -d -s "$SETUP_SESSION" -n "add-feature" \
         "cd '$PROJECT_PATH' && \
-         claude -p 'Read .claude/add-feature-instructions.md and create the feature spec.' --dangerously-skip-permissions && \
-         echo 'Spec created. Creating worktree...' && \
          '$SCRIPT_DIR/feature.sh' '$PROJECT_PATH' '$FEATURE_NAME' --spec-only && \
          touch '$READY_MARKER' && \
          echo 'Feature ready: $FEATURE_NAME' && \
@@ -140,7 +152,7 @@ EOF
     echo "  2. Create git worktree"
     echo "  3. Start development session: $DEV_SESSION"
     echo ""
-    echo "Poll:   test -f .claude/PROJECT_COMPLETE && echo 'done'"
+    echo "Poll:   test -f .multiclaude/PROJECT_COMPLETE && echo 'done'"
     echo "Attach: tmux attach -t $DEV_SESSION"
     exit 0
 fi
@@ -163,23 +175,23 @@ echo "Project: $PROJECT_NAME"
 echo "Feature: $FEATURE_NAME"
 
 # Bootstrap specs structure if it doesn't exist
-if [[ ! -d "$PROJECT_PATH/specs" ]]; then
+if [[ ! -d "$PROJECT_PATH/.multiclaude/specs" ]]; then
     log_info "Bootstrapping multiclaude structure..."
-    mkdir -p "$PROJECT_PATH/specs/features"
-    mkdir -p "$PROJECT_PATH/.claude"
-    touch "$PROJECT_PATH/specs/.features"
+    mkdir -p "$PROJECT_PATH/.multiclaude/specs/features"
+    mkdir -p "$PROJECT_PATH/.multiclaude"
+    touch "$PROJECT_PATH/.multiclaude/specs/.features"
 
     # Create minimal .gitignore additions if .gitignore exists
     if [[ -f "$PROJECT_PATH/.gitignore" ]]; then
-        if ! grep -q "worktrees/" "$PROJECT_PATH/.gitignore" 2>/dev/null; then
-            echo -e "\n# Multiclaude worktrees\nworktrees/" >> "$PROJECT_PATH/.gitignore"
+        if ! grep -q ".multiclaude/" "$PROJECT_PATH/.gitignore" 2>/dev/null; then
+            echo -e "\n# Multiclaude working directory\n.multiclaude/" >> "$PROJECT_PATH/.gitignore"
         fi
     else
-        echo "# Multiclaude worktrees" > "$PROJECT_PATH/.gitignore"
-        echo "worktrees/" >> "$PROJECT_PATH/.gitignore"
+        echo "# Multiclaude working directory" > "$PROJECT_PATH/.gitignore"
+        echo ".multiclaude/" >> "$PROJECT_PATH/.gitignore"
     fi
 
-    log_success "Created specs/ structure"
+    log_success "Created .multiclaude/ structure"
 fi
 
 cd "$PROJECT_PATH"
@@ -188,7 +200,7 @@ cd "$PROJECT_PATH"
 # Just create the worktree
 if [[ -z "$SPEC_ONLY" ]]; then
     # Check feature doesn't exist
-    if [[ -f "$PROJECT_PATH/specs/features/${FEATURE_NAME}.spec.md" ]]; then
+    if [[ -f "$PROJECT_PATH/.multiclaude/specs/features/${FEATURE_NAME}.spec.md" ]]; then
         log_error "Feature already exists: $FEATURE_NAME"
         exit 1
     fi
@@ -198,9 +210,9 @@ if [[ -z "$SPEC_ONLY" ]]; then
 
     # Create spec
     log_info "Creating feature specification..."
-    mkdir -p specs/features
+    mkdir -p .multiclaude/specs/features
 
-    cat > "specs/features/${FEATURE_NAME}.spec.md" << EOF
+    cat > ".multiclaude/specs/features/${FEATURE_NAME}.spec.md" << EOF
 # Feature Specification: ${FEATURE_NAME}
 
 ## Meta
@@ -223,29 +235,37 @@ ${DESCRIPTION}
 - [ ] Status logged as COMPLETE
 EOF
 
-    log_success "Created specs/features/${FEATURE_NAME}.spec.md"
+    log_success "Created .multiclaude/specs/features/${FEATURE_NAME}.spec.md"
+
+    # Spec enrichment is handled by monitor.sh before workers launch
 fi
 
 # Update registry (deduplicated)
-if ! grep -qx "$FEATURE_NAME" "specs/.features" 2>/dev/null; then
-    echo "$FEATURE_NAME" >> "specs/.features"
+if ! grep -qx "$FEATURE_NAME" ".multiclaude/specs/.features" 2>/dev/null; then
+    echo "$FEATURE_NAME" >> ".multiclaude/specs/.features"
 fi
 
 # Create worktree
 BRANCH_NAME="feature/${FEATURE_NAME}"
-WORKTREE_PATH="${PROJECT_PATH}/worktrees/feature-${FEATURE_NAME}"
+WORKTREE_PATH="${PROJECT_PATH}/.multiclaude/worktrees/feature-${FEATURE_NAME}"
 
-git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}" || git branch "${BRANCH_NAME}"
+# Create feature branch off the base branch (if it exists), otherwise current HEAD
+BASE_BRANCH_REF="HEAD"
+if [[ -f "$PROJECT_PATH/.multiclaude/BASE_BRANCH" ]]; then
+    BASE_BRANCH_REF=$(cat "$PROJECT_PATH/.multiclaude/BASE_BRANCH")
+fi
+git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}" || git branch "${BRANCH_NAME}" "${BASE_BRANCH_REF}"
 
 if [[ ! -d "$WORKTREE_PATH" ]]; then
+    mkdir -p "$(dirname "$WORKTREE_PATH")"
     git worktree add "${WORKTREE_PATH}" "${BRANCH_NAME}"
-    mkdir -p "${WORKTREE_PATH}/.claude"
+    mkdir -p "${WORKTREE_PATH}/.multiclaude"
     [[ -f ".mcp.json" ]] && cp ".mcp.json" "${WORKTREE_PATH}/.mcp.json"
-    [[ -f ".claude/settings.json" ]] && cp ".claude/settings.json" "${WORKTREE_PATH}/.claude/settings.json"
-    cp "specs/features/${FEATURE_NAME}.spec.md" "${WORKTREE_PATH}/.claude/FEATURE_SPEC.md"
-    [[ -f "$SCRIPT_DIR/templates/WORKER.md" ]] && cp "$SCRIPT_DIR/templates/WORKER.md" "${WORKTREE_PATH}/.claude/WORKER.md"
-    echo "$(date -Iseconds) [PENDING] Worktree initialized" > "${WORKTREE_PATH}/.claude/status.log"
-    echo "# Worker Inbox" > "${WORKTREE_PATH}/.claude/inbox.md"
+    [[ -f ".multiclaude/settings.json" ]] && cp ".multiclaude/settings.json" "${WORKTREE_PATH}/.multiclaude/settings.json"
+    cp ".multiclaude/specs/features/${FEATURE_NAME}.spec.md" "${WORKTREE_PATH}/.multiclaude/FEATURE_SPEC.md"
+    [[ -f "$SCRIPT_DIR/templates/WORKER.md" ]] && cp "$SCRIPT_DIR/templates/WORKER.md" "${WORKTREE_PATH}/.multiclaude/WORKER.md"
+    echo "$(date -Iseconds) [PENDING] Worktree initialized" > "${WORKTREE_PATH}/.multiclaude/status.log"
+    echo "# Worker Inbox" > "${WORKTREE_PATH}/.multiclaude/inbox.md"
     log_success "Created worktree: $WORKTREE_PATH"
 fi
 
@@ -260,7 +280,18 @@ if [[ -z "$SPEC_ONLY" ]]; then
 
         sleep 2
         tmux send-keys -t "$SESSION_NAME:$FEATURE_NAME" \
-            "You are a WORKER AGENT for '$FEATURE_NAME'. Read .claude/WORKER.md for instructions." C-m
+            "You are a WORKER AGENT for '$FEATURE_NAME'. Read .multiclaude/WORKER.md for instructions." C-m
+
+        # Notify supervisor about the new feature via mailbox
+        cat >> "$PROJECT_PATH/.multiclaude/mailbox" << MSGEOF
+--- MESSAGE ---
+timestamp: $(date -Iseconds)
+from: monitor
+to: supervisor
+NEW_FEATURE: $FEATURE_NAME added to the project.
+Spec at .multiclaude/specs/features/${FEATURE_NAME}.spec.md
+Worker launched in window: $FEATURE_NAME
+MSGEOF
 
         log_success "Worker launched: $SESSION_NAME:$FEATURE_NAME"
     else

@@ -36,7 +36,7 @@ This document defines a structured workflow for parallelized feature development
 │                    WORKTREE DIRECTORY                           │
 │  /project-root/                                                 │
 │  ├── main/                 (base implementation)                │
-│  ├── worktrees/                                                 │
+│  ├── .multiclaude/worktrees/                                                 │
 │  │   ├── feature-auth/     ◄── Claude Instance #1               │
 │  │   ├── feature-api/      ◄── Claude Instance #2               │
 │  │   ├── feature-ui/       ◄── Claude Instance #3               │
@@ -66,7 +66,7 @@ This document defines a structured workflow for parallelized feature development
 ### Objective
 Create a comprehensive project specification with clear separation of concerns.
 
-### Deliverable: `specs/PROJECT_SPEC.md`
+### Deliverable: `.multiclaude/specs/PROJECT_SPEC.md`
 
 ### Structure
 
@@ -184,7 +184,7 @@ export class AuthService implements IAuthService {
 ### Objective
 Generate detailed feature specifications from the project spec for parallel development.
 
-### Feature Spec Template: `specs/features/[feature-name].spec.md`
+### Feature Spec Template: `.multiclaude/specs/features/[feature-name].spec.md`
 
 ```markdown
 # Feature Specification: [Feature Name]
@@ -244,7 +244,7 @@ Define any new or modified data structures.
 - [ ] Integration tests passing
 - [ ] No linting errors
 - [ ] Documentation updated
-- [ ] Status logged to `.claude/status.log`
+- [ ] Status logged to `.multiclaude/status.log`
 ```
 
 ---
@@ -269,7 +269,7 @@ mkdir -p worktrees
 
 for feature in "${FEATURES[@]}"; do
     BRANCH_NAME="feature/${feature}"
-    WORKTREE_PATH="${PROJECT_ROOT}/worktrees/feature-${feature}"
+    WORKTREE_PATH="${PROJECT_ROOT}/.multiclaude/worktrees/feature-${feature}"
 
     # Create branch if it doesn't exist
     git branch "${BRANCH_NAME}" 2>/dev/null || true
@@ -281,7 +281,7 @@ for feature in "${FEATURES[@]}"; do
     mkdir -p "${WORKTREE_PATH}/.claude"
 
     # Initialize status log
-    cat > "${WORKTREE_PATH}/.claude/status.log" << EOF
+    cat > "${WORKTREE_PATH}/.multiclaude/status.log" << EOF
 # Claude Status Log - Feature: ${feature}
 # Format: [TIMESTAMP] [STATUS] [MESSAGE]
 # Status: PENDING | IN_PROGRESS | BLOCKED | TESTING | COMPLETE | FAILED
@@ -290,7 +290,7 @@ $(date -Iseconds) PENDING Worktree initialized, awaiting Claude instance
 EOF
 
     # Copy feature spec to worktree
-    cp "specs/features/${feature}.spec.md" "${WORKTREE_PATH}/.claude/FEATURE_SPEC.md"
+    cp "specs/features/${feature}.spec.md" "${WORKTREE_PATH}/.multiclaude/FEATURE_SPEC.md"
 
     echo "Created worktree for feature: ${feature}"
 done
@@ -311,8 +311,8 @@ WORKTREES_DIR="${PROJECT_ROOT}/worktrees"
 launch_claude() {
     local feature=$1
     local worktree_path="${WORKTREES_DIR}/feature-${feature}"
-    local spec_path="${worktree_path}/.claude/FEATURE_SPEC.md"
-    local log_path="${worktree_path}/.claude/status.log"
+    local spec_path="${worktree_path}/.multiclaude/FEATURE_SPEC.md"
+    local log_path="${worktree_path}/.multiclaude/status.log"
 
     # Launch Claude Code in new terminal/tmux pane
     # Adjust command based on your terminal setup
@@ -325,8 +325,8 @@ You are implementing a feature in a parallelized development workflow.
 
 ## Your Assignment
 - Feature: ${feature}
-- Specification: Read .claude/FEATURE_SPEC.md
-- Status Log: Write progress to .claude/status.log
+- Specification: Read .multiclaude/FEATURE_SPEC.md
+- Status Log: Write progress to .multiclaude/status.log
 
 ## Instructions
 1. Read the feature specification thoroughly
@@ -367,7 +367,7 @@ echo "All Claude instances launched"
 Each Claude instance runs with:
 
 ```yaml
-# .claude/config.yaml (per worktree)
+# .multiclaude/config.yaml (per worktree)
 mcp_servers:
   - name: context7
     enabled: true
@@ -389,8 +389,8 @@ plugins:
 
 settings:
   auto_commit: false
-  status_log: .claude/status.log
-  feature_spec: .claude/FEATURE_SPEC.md
+  status_log: .multiclaude/status.log
+  feature_spec: .multiclaude/FEATURE_SPEC.md
 ```
 
 ---
@@ -418,7 +418,7 @@ print_status() {
 
     for worktree in "${WORKTREES_DIR}"/feature-*; do
         feature=$(basename "$worktree" | sed 's/feature-//')
-        log_file="${worktree}/.claude/status.log"
+        log_file="${worktree}/.multiclaude/status.log"
 
         if [[ -f "$log_file" ]]; then
             latest_status=$(tail -1 "$log_file" | grep -oE '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' | tr -d '[]')
@@ -452,7 +452,7 @@ while true; do
         r) continue ;;
         d)
             read -p "Feature name: " feat
-            cat "${WORKTREES_DIR}/feature-${feat}/.claude/status.log"
+            cat "${WORKTREES_DIR}/feature-${feat}/.multiclaude/status.log"
             read -p "Press enter to continue..."
             ;;
         m)
@@ -474,7 +474,7 @@ You are the orchestrator for a parallel feature development workflow.
 ## Your Responsibilities
 
 1. **Monitor Progress**
-   - Periodically check `.claude/status.log` in each worktree
+   - Periodically check `.multiclaude/status.log` in each worktree
    - Track overall project completion percentage
    - Identify blocked or failed features
 
@@ -502,13 +502,13 @@ You are the orchestrator for a parallel feature development workflow.
 
 ```bash
 # Check all status logs
-for f in worktrees/feature-*/.claude/status.log; do echo "=== $f ===" && tail -5 "$f"; done
+for f in worktrees/feature-*/.multiclaude/status.log; do echo "=== $f ===" && tail -5 "$f"; done
 
 # Watch for changes
-watch -n 10 'for f in worktrees/feature-*/.claude/status.log; do tail -1 "$f"; done'
+watch -n 10 'for f in worktrees/feature-*/.multiclaude/status.log; do tail -1 "$f"; done'
 
 # Get detailed status for a feature
-cat worktrees/feature-auth/.claude/status.log
+cat worktrees/feature-auth/.multiclaude/status.log
 ```
 
 ## Integration Workflow
@@ -581,10 +581,10 @@ Each worktree contains these configuration files:
 | File | Purpose |
 |------|---------|
 | `.mcp.json` | MCP server definitions (root level) |
-| `.claude/settings.json` | Claude Code permissions and settings |
+| `.multiclaude/settings.json` | Claude Code permissions and settings |
 | `CLAUDE.md` | Instructions Claude reads automatically |
-| `.claude/FEATURE_SPEC.md` | Feature-specific implementation spec |
-| `.claude/status.log` | Progress tracking log |
+| `.multiclaude/FEATURE_SPEC.md` | Feature-specific implementation spec |
+| `.multiclaude/status.log` | Progress tracking log |
 
 ### CLAUDE.md - Automatic Instructions
 
@@ -603,8 +603,8 @@ Example structure:
 - browseruse: Use for web research
 
 ## Required Workflow
-1. Read .claude/FEATURE_SPEC.md first
-2. Log status to .claude/status.log
+1. Read .multiclaude/FEATURE_SPEC.md first
+2. Log status to .multiclaude/status.log
 3. Stay within src/auth/ directory
 ```
 
@@ -628,7 +628,7 @@ worktrees/feature-auth/.mcp.json
 
 ## Log File Specification
 
-### Status Log Format: `.claude/status.log`
+### Status Log Format: `.multiclaude/status.log`
 
 ```
 # Claude Status Log - Feature: [feature-name]
@@ -667,7 +667,7 @@ worktrees/feature-auth/.mcp.json
 2024-01-15T12:10:00Z COMPLETE All acceptance criteria met, ready for review
 ```
 
-### Implementation Log: `.claude/implementation.log`
+### Implementation Log: `.multiclaude/implementation.log`
 
 Detailed log of changes made:
 
@@ -704,11 +704,11 @@ Detailed log of changes made:
 ```
 project-root/
 ├── .git/
-├── .claude/
+├── .multiclaude/
 │   ├── mcp_config.json          # Global MCP configuration
 │   └── workflow_config.yaml     # Workflow settings
 │
-├── specs/
+├── .multiclaude/specs/
 │   ├── PROJECT_SPEC.md          # Master project specification
 │   └── features/
 │       ├── auth.spec.md
@@ -728,9 +728,9 @@ project-root/
 │   ├── ui/
 │   └── db/
 │
-├── worktrees/                   # Git worktrees (gitignored)
+├── .multiclaude/worktrees/                   # Git worktrees (gitignored)
 │   ├── feature-auth/
-│   │   ├── .claude/
+│   │   ├── .multiclaude/
 │   │   │   ├── FEATURE_SPEC.md
 │   │   │   ├── status.log
 │   │   │   ├── implementation.log
@@ -766,7 +766,7 @@ project-root/
 ./scripts/monitor-worktrees.sh
 
 # Check specific feature status
-cat worktrees/feature-auth/.claude/status.log
+cat worktrees/feature-auth/.multiclaude/status.log
 
 # Merge completed feature
 ./scripts/merge-feature.sh auth

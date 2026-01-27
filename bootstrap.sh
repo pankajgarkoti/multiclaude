@@ -4,6 +4,9 @@ set -e
 VERSION="1.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source shared phases library
+source "$SCRIPT_DIR/phases.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -143,7 +146,7 @@ prompt_confirm() {
 
 create_directory_structure() {
     local project_dir="$1"
-    mkdir -p "$project_dir"/{.claude,specs/features,src,docs}
+    mkdir -p "$project_dir"/{.multiclaude/specs/features,src,docs}
 }
 
 init_git_repo() {
@@ -157,8 +160,8 @@ init_git_repo() {
 
     # Create .gitignore
     cat > .gitignore << 'EOF'
-# Worktrees (managed separately)
-worktrees/
+# Multiclaude working directory
+.multiclaude/
 
 # Environment
 .env
@@ -189,18 +192,13 @@ Thumbs.db
 
 # Logs
 *.log
-!specs/**/*.log
-
-# Claude working files (keep status logs)
-.claude/cache/
-.claude/tmp/
 EOF
 }
 
 create_mcp_config() {
     local project_dir="$1"
 
-    cat > "$project_dir/.claude/settings.json" << 'EOF'
+    cat > "$project_dir/.multiclaude/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": [
@@ -219,8 +217,8 @@ create_mcp_config() {
     "deny": []
   },
   "env": {
-    "CLAUDE_STATUS_LOG": ".claude/status.log",
-    "CLAUDE_IMPL_LOG": ".claude/implementation.log"
+    "CLAUDE_STATUS_LOG": ".multiclaude/status.log",
+    "CLAUDE_IMPL_LOG": ".multiclaude/implementation.log"
   }
 }
 EOF
@@ -267,14 +265,14 @@ You have access to the following MCP servers:
 
 When working on a feature in this project:
 
-1. **Always read** `.claude/FEATURE_SPEC.md` first if it exists
-2. **Log status** to `.claude/status.log` using format:
+1. **Always read** `.multiclaude/FEATURE_SPEC.md` first if it exists
+2. **Log status** to `.multiclaude/status.log` using format:
    ```
    $(date -Iseconds) [STATUS] Message
    ```
    Status codes: PENDING, IN_PROGRESS, BLOCKED, TESTING, COMPLETE, FAILED
 
-3. **Log implementation details** to `.claude/implementation.log`
+3. **Log implementation details** to `.multiclaude/implementation.log`
 
 4. **Use context7** to look up documentation for libraries before using them
 
@@ -309,7 +307,7 @@ create_project_spec() {
     local project_name="$2"
     local project_description="$3"
 
-    cat > "$project_dir/specs/PROJECT_SPEC.md" << EOF
+    cat > "$project_dir/.multiclaude/specs/PROJECT_SPEC.md" << EOF
 # Project Specification: ${project_name}
 
 ## 1. Executive Summary
@@ -479,212 +477,7 @@ in specs/features/. These define the boundaries for parallel development.
 EOF
 }
 
-create_standards() {
-    local project_dir="$1"
-
-    cd "$project_dir"
-
-    # Create standards generation instructions
-    cat > "$project_dir/CLAUDE.md" << 'STANDARDS_EOF'
-# Standards Generation Instructions
-
-You are generating quality standards for this project based on research findings and the project specification.
-
-## Inputs to Read
-
-1. **Research findings**: `.claude/research-findings.md` - Contains UI/UX patterns, recommended standards, and best practices from analyzed products
-2. **Project specification**: `specs/PROJECT_SPEC.md` - Contains features, architecture, and requirements
-
-Read both files before generating standards.
-
-## Standard Format
-
-Each standard MUST follow this exact format:
-
-```markdown
-## STD-XXX: [Descriptive Name]
-**Category**: [Testing|UI|Security|CodeQuality|Performance|Documentation|Functional]
-
-As a [user/developer], [user story format describing expected behavior or requirement].
-
-**Verification**: [Specific command or method to verify this standard]
-**Acceptance Criteria**:
-- [ ] Criterion 1
-- [ ] Criterion 2
-- [ ] Criterion 3
-```
-
-## Required Standard Categories
-
-Include standards from ALL these categories:
-
-### Testing (STD-T)
-- Unit test coverage and passing
-- Integration tests
-- E2E tests if applicable
-
-### UI (STD-U)
-- Console error handling
-- Responsive design
-- Accessibility (a11y)
-- UI patterns from research findings
-
-### Security (STD-S)
-- No hardcoded secrets
-- Input validation
-- Authentication/authorization if applicable
-
-### Code Quality (STD-Q)
-- Linting passes
-- Type safety (TypeScript)
-- Code documentation
-
-### Performance (STD-P)
-- Load times
-- Bundle size
-- Resource usage
-
-### Functional (STD-F)
-- Core features from PROJECT_SPEC.md
-- User flows identified in research
-
-## Your Task
-
-1. Read `.claude/research-findings.md`
-2. Read `specs/PROJECT_SPEC.md`
-3. Generate `specs/STANDARDS.md` that:
-   - Starts with a header and overview
-   - Includes standards from ALL categories above
-   - Incorporates specific insights from research (UI/UX patterns observed)
-   - Adds project-specific functional standards based on features in PROJECT_SPEC
-   - Contains 15-25 total standards (comprehensive but focused)
-   - References analyzed products where relevant
-
-4. When complete, say "STANDARDS_COMPLETE"
-
-## Example Output Structure
-
-```markdown
-# Project Quality Standards
-
-This document defines quality standards that the QA Agent will verify.
-Standards are derived from research into similar products and project requirements.
-
-## Testing Standards
-
-### STD-T001: Unit Tests Pass
-**Category**: Testing
-...
-
-## UI Standards
-
-### STD-U001: No Console Errors
-**Category**: UI
-...
-
-## Functional Standards
-
-### STD-F001: [Feature from spec]
-**Category**: Functional
-...
-```
-
-Start by reading the research findings and project spec, then generate comprehensive standards.
-
-## IMPORTANT: Exiting This Phase
-When you have finished generating standards, remind the user:
-
-**"Standards generation complete! Type /exit to proceed to the development phase."**
-STANDARDS_EOF
-
-    echo -e "${CYAN}Standards generation${NC} - type /exit when done"
-    echo ""
-
-    local gen_prompt="Read CLAUDE.md for standards generation instructions. Read the research findings and project spec, then create specs/STANDARDS.md with project-specific quality standards. Say STANDARDS_COMPLETE when done."
-    claude "$gen_prompt" --dangerously-skip-permissions || true
-
-    if [[ ! -f "$project_dir/specs/STANDARDS.md" ]]; then
-        # Fallback to template if generation fails
-        if [[ -f "$SCRIPT_DIR/templates/STANDARDS.template.md" ]]; then
-            cp "$SCRIPT_DIR/templates/STANDARDS.template.md" "$project_dir/specs/STANDARDS.md"
-        else
-            cat > "$project_dir/specs/STANDARDS.md" << 'EOF'
-# Project Quality Standards
-
-This document defines quality standards the QA Agent will verify.
-
-## Testing Standards
-
-### STD-T001: Unit Tests Pass
-**Category**: Testing
-
-As a developer, all unit tests should pass before merging.
-
-**Verification**: Run `npm test`
-**Acceptance Criteria**:
-- [ ] All unit tests pass
-- [ ] No skipped tests without justification
-
-### STD-T002: Code Coverage >= 80%
-**Category**: Testing
-
-As a developer, code should have adequate test coverage.
-
-**Verification**: Run `npm test -- --coverage`
-**Acceptance Criteria**:
-- [ ] Line coverage >= 80%
-- [ ] Branch coverage >= 70%
-
-## UI Standards
-
-### STD-U001: No Console Errors
-**Category**: UI
-
-As a user, I should not see console errors during normal operation.
-
-**Verification**: Check browser console during feature usage
-**Acceptance Criteria**:
-- [ ] No JavaScript errors in console
-- [ ] No unhandled promise rejections
-
-## Security Standards
-
-### STD-S001: No Hardcoded Secrets
-**Category**: Security
-
-As a developer, no sensitive data should be in source code.
-
-**Verification**: Run `grep -r "password\|secret\|api_key" src/`
-**Acceptance Criteria**:
-- [ ] No API keys in source code
-- [ ] No passwords in source code
-- [ ] Secrets use environment variables
-
-## Code Quality Standards
-
-### STD-Q001: No Lint Errors
-**Category**: CodeQuality
-
-As a developer, code should follow style guidelines.
-
-**Verification**: Run `npm run lint`
-**Acceptance Criteria**:
-- [ ] No ESLint errors
-- [ ] No ESLint warnings (or documented exceptions)
-
-### STD-Q002: TypeScript Strict Mode
-**Category**: CodeQuality
-
-As a developer, code should be type-safe.
-
-**Verification**: Run `npx tsc --noEmit`
-**Acceptance Criteria**:
-- [ ] No TypeScript errors
-- [ ] Strict mode enabled
-EOF
-        fi
-    fi
-}
+# create_standards() - REMOVED: now provided by phases.sh run_standards_phase()
 
 create_feature_spec() {
     local project_dir="$1"
@@ -693,7 +486,7 @@ create_feature_spec() {
     local feature_description="$4"
 
     local safe_name=$(echo "$feature_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
-    local spec_file="$project_dir/specs/features/${safe_name}.spec.md"
+    local spec_file="$project_dir/.multiclaude/specs/features/${safe_name}.spec.md"
 
     cat > "$spec_file" << EOF
 # Feature Specification: ${feature_name}
@@ -811,7 +604,7 @@ const testFixtures = {
 - [ ] No linting or type errors
 - [ ] Code reviewed (via Ralph suggestions)
 - [ ] Documentation updated
-- [ ] Status logged as COMPLETE in .claude/status.log
+- [ ] Status logged as COMPLETE in .multiclaude/status.log
 
 ---
 
@@ -1019,30 +812,30 @@ multiclaude stop .
 ## Project Structure
 
 \`\`\`
-├── specs/
-│   ├── PROJECT_SPEC.md      # Master project specification
-│   ├── STANDARDS.md         # Quality standards for QA
-│   ├── .features            # Feature list (one per line)
-│   └── features/            # Per-feature specifications
-├── .claude/
+├── .multiclaude/
 │   ├── settings.json        # Claude permissions
 │   ├── ALL_MERGED           # Created when features merged
 │   ├── qa-report.json       # QA test results
 │   ├── QA_COMPLETE          # Created when QA passes
-│   └── QA_NEEDS_FIXES       # Created when QA fails
+│   ├── QA_NEEDS_FIXES       # Created when QA fails
+│   ├── specs/
+│   │   ├── PROJECT_SPEC.md  # Master project specification
+│   │   ├── STANDARDS.md     # Quality standards for QA
+│   │   ├── .features        # Feature list (one per line)
+│   │   └── features/        # Per-feature specifications
+│   └── worktrees/feature-*/ # Feature worktrees
+│       └── .multiclaude/
+│           ├── FEATURE_SPEC.md  # Feature specification
+│           ├── status.log       # Worker status
+│           └── inbox.md         # Commands from orchestrator
 ├── src/                     # Base implementation
-├── CLAUDE.md                # Project instructions
-└── worktrees/feature-*/     # Feature worktrees (gitignored)
-    └── .claude/
-        ├── FEATURE_SPEC.md  # Feature specification
-        ├── status.log       # Worker status
-        └── inbox.md         # Commands from orchestrator
+└── CLAUDE.md                # Project instructions
 \`\`\`
 
 ## Workflow
 
-1. **Specification**: Edit \`specs/PROJECT_SPEC.md\` with your project details
-2. **Feature Specs**: Create detailed specs in \`specs/features/\`
+1. **Specification**: Edit \`.multiclaude/specs/PROJECT_SPEC.md\` with your project details
+2. **Feature Specs**: Create detailed specs in \`.multiclaude/specs/features/\`
 3. **Run**: Execute \`multiclaude run .\` to start the full workflow
 4. **Monitor**: Watch the orchestrator or use \`multiclaude status .\`
 5. **Complete**: Orchestrator handles merge, QA, and fix cycles automatically
@@ -1084,303 +877,21 @@ All Claude instances have access to the following MCP servers (configured in \`.
 EOF
 }
 
-run_research_phase() {
-    local project_dir="$1"
-    local project_name="$2"
-    local project_description="$3"
+# run_research_phase() - REMOVED: now provided by phases.sh
 
-    cd "$project_dir"
-    mkdir -p "$project_dir/.claude"
-
-    # Create research instructions in CLAUDE.md
-    cat > "$project_dir/CLAUDE.md" << RESEARCH_EOF
-# Research Phase Instructions
-
-You are a RESEARCH AGENT. Your task is to gather insights that will inform this project's specifications and quality standards.
-
-## Project Information
-- **Name**: ${project_name}
-- **Description**: ${project_description}
-
-## Your Tasks
-
-### 1. Analyze Project Description
-Extract any URLs, product references, or domain-specific terminology from the description above.
-
-### 2. Browse Referenced URLs
-If the description mentions any URLs or specific products:
-- Use WebFetch to analyze each referenced product/service
-- Capture: features, UI patterns, UX flows, quality indicators
-
-### 3. Research 2-3 Similar Products
-Search for and analyze 2-3 similar products or competitors in this domain:
-- Use WebSearch to find similar products
-- Use WebFetch to analyze each product's website
-- For each product, document:
-  - **Features**: Core functionality, unique capabilities
-  - **UI patterns**: Visual design, layouts, components, styling approaches
-  - **UX patterns**: User flows, navigation, interactions, onboarding
-  - **Quality aspects**: Performance indicators, accessibility, error handling
-
-### 4. Document Your Findings
-Create the file \`.claude/research-findings.md\` with this structure:
-
-\`\`\`markdown
-# Research Findings
-
-## Project Context
-[Brief summary of what we're building based on the description]
-
-## Referenced URLs Analysis
-### [URL 1]
-- **Key features**: ...
-- **UI patterns**: [layouts, components, visual style]
-- **UX patterns**: [user flows, interactions, navigation]
-- **Quality indicators**: ...
-
-## Similar Products Analyzed
-
-### [Product 1 Name]
-- **URL**: [product URL]
-- **Features**: Core functionality, unique capabilities
-- **UI patterns**: Visual design, layouts, components used
-- **UX patterns**: User flows, navigation structure, interactions
-- **Quality aspects**: Performance, accessibility, error handling
-
-### [Product 2 Name]
-(same structure)
-
-### [Product 3 Name]
-(same structure)
-
-## UI/UX Recommendations
-Based on research, adopt these patterns:
-- **[UI pattern 1]**: [description and why it's recommended]
-- **[UI pattern 2]**: [description and why it's recommended]
-- **[UX pattern 1]**: [description and why it's recommended]
-- **[UX pattern 2]**: [description and why it's recommended]
-
-## Recommended Standards
-Based on analysis of similar products, the project should meet these standards:
-- [Standard 1]: [rationale from research]
-- [Standard 2]: [rationale from research]
-- [Standard 3]: [rationale from research]
-
-## Industry Best Practices
-- [Best practice 1]
-- [Best practice 2]
-- [Best practice 3]
-
-## Technology Observations
-Common technologies/approaches used by similar products:
-- [Technology/pattern 1]
-- [Technology/pattern 2]
-\`\`\`
-
-### 5. Complete
-When you have finished researching and documenting findings, say "RESEARCH_COMPLETE" to indicate you are done.
-
-## Tools Available
-- **WebSearch**: For finding similar products and researching the domain
-- **WebFetch**: For browsing and analyzing specific URLs
-- **Write/Edit**: For creating .claude/research-findings.md
-
-## IMPORTANT: Exiting This Phase
-When you are done with research, remind the user:
-
-**"Research phase complete! Type /exit to proceed to the planning phase."**
-
-## Start Now
-Begin by analyzing the project description, then search for and analyze similar products. Document everything in .claude/research-findings.md.
-RESEARCH_EOF
-
-    echo -e "${CYAN}Research phase${NC} - type /exit when done"
-    echo ""
-
-    local research_prompt="Read CLAUDE.md for your research instructions. Research similar products and create .claude/research-findings.md with your findings. Say RESEARCH_COMPLETE when done."
-    claude "$research_prompt" --dangerously-skip-permissions || true
-
-    if [[ ! -f "$project_dir/.claude/research-findings.md" ]]; then
-        # Create minimal placeholder so downstream steps don't fail
-        cat > "$project_dir/.claude/research-findings.md" << 'EOF'
-# Research Findings
-
-## Project Context
-Research phase was skipped or did not complete.
-
-## Similar Products Analyzed
-No products were analyzed.
-
-## UI/UX Recommendations
-Use standard industry patterns.
-
-## Recommended Standards
-Follow standard quality practices.
-EOF
-    fi
-}
-
-run_claude_planning() {
-    local project_dir="$1"
-    local project_name="$2"
-    local project_description="$3"
-
-    cd "$project_dir"
-
-    # Write planning instructions to CLAUDE.md (Claude auto-reads this)
-    cat > "$project_dir/CLAUDE.md" << PROMPT_EOF
-# Project Planning Instructions
-
-You are a software architect helping to plan a new project. Your task is to analyze the project requirements and create detailed specifications.
-
-## Project Information
-- **Name**: ${project_name}
-- **Description**: ${project_description}
-
-## Research Context
-
-**IMPORTANT**: First, read the research findings from the research phase:
-\`\`\`bash
-cat .claude/research-findings.md
-\`\`\`
-
-Use these insights to inform your PROJECT_SPEC.md and feature specs:
-- Apply UI/UX patterns observed in similar products
-- Incorporate industry best practices discovered
-- Reference analyzed products as inspiration
-- Use recommended standards from the research
-
-## Your Tasks
-
-### 1. Create Project Specification
-Create a comprehensive project spec at \`specs/PROJECT_SPEC.md\` that includes:
-- Executive summary and goals
-- **Research Insights** section summarizing key learnings from analyzed products
-- System architecture (with ASCII diagrams) informed by patterns from research
-- Technology stack recommendations (with rationale, referencing research)
-- Domain model and core entities
-- Feature breakdown for parallel development
-- UI/UX patterns to adopt (from research findings)
-- Non-functional requirements (performance, security, scalability)
-
-### 2. Identify Feature Modules
-Break down the project into 3-7 independent feature modules that can be developed in parallel. Consider:
-- Separation of concerns
-- Minimal dependencies between features
-- Clear boundaries and interfaces
-- Each feature should be implementable by a single Claude instance
-
-### 3. Clarify Unknowns (Use Plan Mode)
-Enter plan mode to gather requirements. Only ask about critical unknowns you cannot reasonably decide yourself (e.g., specific API providers they must use, existing systems to integrate with). Make sensible default choices for everything else.
-
-### 4. Create Feature Specifications
-For each feature module, create a detailed spec file at \`specs/features/<feature-name>.spec.md\` containing:
-- Feature overview and purpose
-- Acceptance criteria (checkboxes)
-- Technical requirements (files to create, interfaces, data models)
-- External dependencies (npm packages needed)
-- Testing requirements
-- Definition of done
-
-### 5. Output Feature List (CRITICAL)
-**IMPORTANT**: After creating all specs, you MUST create a file at \`specs/.features\` containing ONLY the feature names (one per line, lowercase, no spaces). This file is required for the automation scripts to continue.
-
-Example \`specs/.features\` content:
-\`\`\`
-auth
-api
-database
-ui
-\`\`\`
-
-## Guidelines
-- Use TypeScript/Node.js patterns unless the description suggests otherwise
-- Design for testability (80% coverage target)
-- Keep features loosely coupled
-- Define clear interfaces between modules
-- Be specific in acceptance criteria - they will guide implementation
-- Incorporate user's answers to clarifying questions into all specs
-
-## IMPORTANT: Exiting This Phase
-When you have finished planning and created all specification files, remind the user:
-
-**"Planning phase complete! All specs have been created. Type /exit to proceed to the next phase."**
-
-## Start Now
-1. First, read the research findings from .claude/research-findings.md
-2. Ask the user clarifying questions about technical choices, APIs, and preferences
-3. Create specs/PROJECT_SPEC.md incorporating their answers
-4. Create individual feature specs in specs/features/
-5. Create specs/.features with the feature list
-6. Remind the user to type /exit when done
-PROMPT_EOF
-
-    echo -e "${CYAN}Planning phase${NC} - type /exit when done"
-    echo ""
-
-    local planning_prompt="Read the CLAUDE.md file for your planning instructions, then create all the specification files as described. Start now."
-    claude "$planning_prompt" --dangerously-skip-permissions || true
-
-    # Auto-detect features if not created
-    if [[ ! -f "$project_dir/specs/.features" ]]; then
-        if [[ -d "$project_dir/specs/features" ]] && ls "$project_dir/specs/features"/*.spec.md &>/dev/null; then
-            for spec in "$project_dir/specs/features"/*.spec.md; do
-                basename "$spec" .spec.md
-            done > "$project_dir/specs/.features"
-        fi
-    fi
-
-    # After planning, update CLAUDE.md for normal project use
-    cat > "$project_dir/CLAUDE.md" << 'EOF'
-# Claude Code Project Instructions
-
-## MCP Servers Available
-
-### context7
-- **Purpose**: Library documentation and code context lookup
-- **Usage**: Use to fetch documentation for any library/framework
-
-### browseruse
-- **Purpose**: Web browser automation and research
-- **Usage**: Navigate websites, research documentation, verify APIs
-
-## Workflow Instructions
-
-When working on a feature in this project:
-
-1. **Always read** `.claude/FEATURE_SPEC.md` first if it exists
-2. **Log status** to `.claude/status.log` using format:
-   ```
-   $(date -Iseconds) [STATUS] Message
-   ```
-   Status codes: PENDING, IN_PROGRESS, BLOCKED, TESTING, COMPLETE, FAILED
-
-3. **Log implementation details** to `.claude/implementation.log`
-
-4. **Use context7** to look up documentation for libraries before using them
-
-5. **Use browseruse** for web research when needed
-
-## Code Standards
-
-- Follow existing code patterns in the project
-- Write tests for all new functionality (target: 80% coverage)
-- Do not modify files outside your feature boundary
-- Update status log at each milestone
-EOF
-}
+# run_claude_planning() - REMOVED: now provided by phases.sh run_spec_phase()
 
 extract_features_from_plan() {
     local project_dir="$1"
-    local features_file="$project_dir/specs/.features"
+    local features_file="$project_dir/.multiclaude/specs/.features"
 
     if [[ -f "$features_file" ]]; then
         # Read features from file, filter empty lines and comments
         grep -v '^#' "$features_file" | grep -v '^$' | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]\n-'
     else
-        # Fallback: scan specs/features directory
-        if [[ -d "$project_dir/specs/features" ]]; then
-            for spec in "$project_dir/specs/features"/*.spec.md; do
+        # Fallback: scan .multiclaude/specs/features directory
+        if [[ -d "$project_dir/.multiclaude/specs/features" ]]; then
+            for spec in "$project_dir/.multiclaude/specs/features"/*.spec.md; do
                 if [[ -f "$spec" ]]; then
                     basename "$spec" .spec.md
                 fi
@@ -1414,55 +925,29 @@ run_noninteractive() {
     log_info "Setting up project in: $project_dir"
 
     # Create minimal structure
-    mkdir -p "$project_dir/.claude"
-    mkdir -p "$project_dir/specs/features"
+    mkdir -p "$project_dir/.multiclaude"
+    mkdir -p "$project_dir/.multiclaude/specs/features"
 
-    # Copy the brief file - Claude will read this
-    cp "$brief_file" "$project_dir/.claude/project-brief.txt"
+    # Copy the brief file for reference
+    cp "$brief_file" "$project_dir/.multiclaude/project-brief.txt"
 
-    # Create CLAUDE.md with instructions for the unified setup phase
-    cat > "$project_dir/CLAUDE.md" << 'SETUP_EOF'
-# Non-Interactive Project Setup
-
-You are setting up a new project from a brief file. Run all phases sequentially.
-
-## Your Brief
-Read `.claude/project-brief.txt` for the project requirements.
-
-## Phase 1: RESEARCH
-1. Analyze the brief to understand what's being built
-2. Search for 2-3 similar products and analyze them
-3. Document findings in `.claude/research-findings.md`
-
-## Phase 2: PLANNING
-1. Create `specs/PROJECT_SPEC.md` with full architecture
-2. Break down into 3-7 feature modules
-3. Create `specs/features/<name>.spec.md` for each feature
-4. Create `specs/.features` with feature names (one per line)
-
-## Phase 3: STANDARDS
-1. Create `specs/STANDARDS.md` with quality standards
-2. Include testing, UI, security, and code quality standards
-
-## When Done
-Say "SETUP_COMPLETE" and list the files you created.
-SETUP_EOF
+    # Read brief content for phases
+    local brief_content
+    brief_content="$(cat "$brief_file")"
 
     # Update .gitignore (append if exists, create if not)
     if [[ -f "$project_dir/.gitignore" ]]; then
-        if ! grep -q "worktrees/" "$project_dir/.gitignore" 2>/dev/null; then
+        if ! grep -q ".multiclaude/" "$project_dir/.gitignore" 2>/dev/null; then
             cat >> "$project_dir/.gitignore" << 'EOF'
 
-# Multiclaude
-worktrees/
-.claude/cache/
-.claude/tmp/
+# Multiclaude working directory
+.multiclaude/
 EOF
         fi
     else
         cat > "$project_dir/.gitignore" << 'EOF'
-# Worktrees (managed separately)
-worktrees/
+# Multiclaude working directory
+.multiclaude/
 
 # Environment
 .env
@@ -1493,17 +978,12 @@ Thumbs.db
 
 # Logs
 *.log
-!specs/**/*.log
-
-# Claude working files (keep status logs)
-.claude/cache/
-.claude/tmp/
 EOF
     fi
 
     # Create MCP config (only if not exists)
-    if [[ ! -f "$project_dir/.claude/settings.json" ]]; then
-        cat > "$project_dir/.claude/settings.json" << 'EOF'
+    if [[ ! -f "$project_dir/.multiclaude/settings.json" ]]; then
+        cat > "$project_dir/.multiclaude/settings.json" << 'EOF'
 {
   "permissions": {
     "allow": [
@@ -1561,11 +1041,13 @@ EOF
     log_info "Starting setup session: $session_name"
 
     tmux new-session -d -s "$session_name" -n "setup" \
-        "cd '$project_dir' && claude 'Read CLAUDE.md and .claude/project-brief.txt. Complete all setup phases. Say SETUP_COMPLETE when done.' --dangerously-skip-permissions; \
-         echo ''; echo 'Setup complete. Press Enter to finalize...'; read; \
-         git add -A && git commit -m 'Initial scaffold from brief'; \
-         echo 'Project ready! Run: multiclaude run $project_dir'; \
-         echo 'Press Enter to close session...'; read"
+        "cd '$project_dir' && \
+         source '$SCRIPT_DIR/phases.sh' && \
+         run_all_phases '$project_dir' \"\$(cat '$project_dir/.multiclaude/project-brief.txt')\" && \
+         echo '' && echo 'Setup complete. Press Enter to finalize...' && read && \
+         git add -A && git commit -m 'Initial scaffold from brief' && \
+         echo 'Project ready! Run: multiclaude run $project_dir' && \
+         echo 'Press Enter to close session...' && read"
 
     log_success "Setup session created: $session_name"
     echo ""
@@ -1679,11 +1161,8 @@ main() {
     init_git_repo "$project_dir"
     create_mcp_config "$project_dir"
 
-    # Research phase
-    run_research_phase "$project_dir" "$project_name" "$project_description"
-
-    # Planning phase
-    run_claude_planning "$project_dir" "$project_name" "$project_description"
+    # Run all phases: research -> spec -> standards
+    run_all_phases "$project_dir" "$project_description"
 
     # Extract features
     local features=()
@@ -1705,7 +1184,6 @@ main() {
     fi
 
     create_base_source "$project_dir" "${features[@]}"
-    create_standards "$project_dir"
     create_readme "$project_dir" "$project_name"
 
     cd "$project_dir"

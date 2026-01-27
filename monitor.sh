@@ -10,6 +10,10 @@
 #═══════════════════════════════════════════════════════════════════════════════
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source shared phases library
+source "$SCRIPT_DIR/phases.sh"
+
 PROJECT_PATH="$1"
 
 if [[ -z "$PROJECT_PATH" ]] || [[ ! -d "$PROJECT_PATH" ]]; then
@@ -76,7 +80,7 @@ print_separator() {
 #───────────────────────────────────────────────────────────────────────────────
 
 watch_mailbox() {
-    local mailbox="$PROJECT_PATH/.claude/mailbox"
+    local mailbox="$PROJECT_PATH/.multiclaude/mailbox"
     local processed_count=0
 
     while true; do
@@ -149,12 +153,12 @@ watch_mailbox() {
 get_features() {
     local features=()
 
-    if [[ -f "$PROJECT_PATH/specs/.features" ]]; then
+    if [[ -f "$PROJECT_PATH/.multiclaude/specs/.features" ]]; then
         while IFS= read -r feature; do
             [[ -n "$feature" ]] && [[ ! "$feature" =~ ^# ]] && features+=("$feature")
-        done < "$PROJECT_PATH/specs/.features"
-    elif [[ -d "$PROJECT_PATH/specs/features" ]]; then
-        for spec in "$PROJECT_PATH/specs/features"/*.spec.md; do
+        done < "$PROJECT_PATH/.multiclaude/specs/.features"
+    elif [[ -d "$PROJECT_PATH/.multiclaude/specs/features" ]]; then
+        for spec in "$PROJECT_PATH/.multiclaude/specs/features"/*.spec.md; do
             if [[ -f "$spec" ]]; then
                 features+=("$(basename "$spec" .spec.md)")
             fi
@@ -162,6 +166,17 @@ get_features() {
     fi
 
     echo "${features[@]}"
+}
+
+# Remove a completed feature from the pending list
+remove_feature() {
+    local feature="$1"
+    local features_file="$PROJECT_PATH/.multiclaude/specs/.features"
+
+    if [[ -f "$features_file" ]]; then
+        grep -v "^${feature}$" "$features_file" > "${features_file}.tmp" || true
+        mv "${features_file}.tmp" "$features_file"
+    fi
 }
 
 #───────────────────────────────────────────────────────────────────────────────
@@ -174,21 +189,25 @@ setup_worktrees() {
     local features=($(get_features))
 
     if [[ ${#features[@]} -eq 0 ]]; then
-        log_error "No features found in specs/features/*.spec.md or specs/.features"
+        log_error "No features found in .multiclaude/specs/features/*.spec.md or .multiclaude/specs/.features"
         return 1
     fi
 
     printf "  Features: ${CYAN}${features[*]}${NC}\n"
 
-    # Ensure we're on main
+    # Create a base branch off main for this session
+    local base_branch="multiclaude/${PROJECT_NAME}-$(date +%Y%m%d-%H%M%S)"
     git checkout main 2>/dev/null || git checkout -b main 2>/dev/null
+    git checkout -b "$base_branch" 2>/dev/null || git checkout "$base_branch" 2>/dev/null
+    echo "$base_branch" > "$PROJECT_PATH/.multiclaude/BASE_BRANCH"
+    log_success "Created base branch: $base_branch"
 
     # Create worktrees directory
-    mkdir -p worktrees
+    mkdir -p .multiclaude/worktrees
 
     for feature in "${features[@]}"; do
         local branch_name="feature/${feature}"
-        local worktree_path="${PROJECT_PATH}/worktrees/feature-${feature}"
+        local worktree_path="${PROJECT_PATH}/.multiclaude/worktrees/feature-${feature}"
 
         if [[ -d "$worktree_path" ]]; then
             printf "  ${DIM}%-15s already exists${NC}\n" "$feature"
@@ -203,66 +222,71 @@ setup_worktrees() {
         # Create worktree
         git worktree add "${worktree_path}" "${branch_name}" 2>/dev/null
 
-        # Setup worktree .claude directory
-        mkdir -p "${worktree_path}/.claude"
+        # Setup worktree .multiclaude directory
+        mkdir -p "${worktree_path}/.multiclaude"
 
         # Copy configs
         [[ -f "${PROJECT_PATH}/.mcp.json" ]] && cp "${PROJECT_PATH}/.mcp.json" "${worktree_path}/.mcp.json"
-        [[ -f "${PROJECT_PATH}/.claude/settings.json" ]] && cp "${PROJECT_PATH}/.claude/settings.json" "${worktree_path}/.claude/settings.json"
+        [[ -f "${PROJECT_PATH}/.multiclaude/settings.json" ]] && cp "${PROJECT_PATH}/.multiclaude/settings.json" "${worktree_path}/.multiclaude/settings.json"
         [[ -f "${PROJECT_PATH}/CLAUDE.md" ]] && cp "${PROJECT_PATH}/CLAUDE.md" "${worktree_path}/CLAUDE.md"
 
         # Copy feature spec
-        if [[ -f "${PROJECT_PATH}/specs/features/${feature}.spec.md" ]]; then
-            cp "${PROJECT_PATH}/specs/features/${feature}.spec.md" "${worktree_path}/.claude/FEATURE_SPEC.md"
+        if [[ -f "${PROJECT_PATH}/.multiclaude/specs/features/${feature}.spec.md" ]]; then
+            cp "${PROJECT_PATH}/.multiclaude/specs/features/${feature}.spec.md" "${worktree_path}/.multiclaude/FEATURE_SPEC.md"
         fi
 
         # Initialize status log
-        echo "$(date -Iseconds) [PENDING] Worktree initialized" > "${worktree_path}/.claude/status.log"
+        echo "$(date -Iseconds) [PENDING] Worktree initialized" > "${worktree_path}/.multiclaude/status.log"
 
         printf "  ${GREEN}%-15s created${NC}\n" "$feature"
     done
 
     log_success "Worktrees ready"
+
+    # Enrich any bare specs before workers launch
+    log_step "Enriching feature specs..."
+    run_spec_phase "$PROJECT_PATH"
+    log_success "Specs enriched"
 }
 
 install_templates() {
     log_step "Installing agent templates..."
 
-    mkdir -p "$PROJECT_PATH/.claude"
-    mkdir -p "$PROJECT_PATH/.claude/qa-reports"
-    mkdir -p "$PROJECT_PATH/.claude/fix-tasks"
+    mkdir -p "$PROJECT_PATH/.multiclaude"
+    mkdir -p "$PROJECT_PATH/.multiclaude/qa-reports"
+    mkdir -p "$PROJECT_PATH/.multiclaude/fix-tasks"
 
     # Initialize central mailbox
-    if [[ ! -f "$PROJECT_PATH/.claude/mailbox" ]]; then
-        touch "$PROJECT_PATH/.claude/mailbox"
+    if [[ ! -f "$PROJECT_PATH/.multiclaude/mailbox" ]]; then
+        touch "$PROJECT_PATH/.multiclaude/mailbox"
         printf "  ${GREEN}✓${NC} mailbox (central message bus)\n"
     fi
 
     # Supervisor template
     if [[ -f "$SCRIPT_DIR/templates/SUPERVISOR.md" ]]; then
-        cp "$SCRIPT_DIR/templates/SUPERVISOR.md" "$PROJECT_PATH/.claude/SUPERVISOR.md"
+        cp "$SCRIPT_DIR/templates/SUPERVISOR.md" "$PROJECT_PATH/.multiclaude/SUPERVISOR.md"
         printf "  ${GREEN}✓${NC} SUPERVISOR.md\n"
     fi
 
     # QA template
     if [[ -f "$SCRIPT_DIR/templates/QA_INSTRUCTIONS.md" ]]; then
-        cp "$SCRIPT_DIR/templates/QA_INSTRUCTIONS.md" "$PROJECT_PATH/.claude/QA_INSTRUCTIONS.md"
+        cp "$SCRIPT_DIR/templates/QA_INSTRUCTIONS.md" "$PROJECT_PATH/.multiclaude/QA_INSTRUCTIONS.md"
         printf "  ${GREEN}✓${NC} QA_INSTRUCTIONS.md\n"
     fi
 
     # Worker templates
     if [[ -f "$SCRIPT_DIR/templates/WORKER.md" ]]; then
-        for worktree in "$PROJECT_PATH"/worktrees/feature-*; do
+        for worktree in "$PROJECT_PATH"/.multiclaude/worktrees/feature-*; do
             if [[ -d "$worktree" ]]; then
-                cp "$SCRIPT_DIR/templates/WORKER.md" "$worktree/.claude/WORKER.md"
+                cp "$SCRIPT_DIR/templates/WORKER.md" "$worktree/.multiclaude/WORKER.md"
             fi
         done
         printf "  ${GREEN}✓${NC} WORKER.md (all worktrees)\n"
     fi
 
     # Standards template
-    if [[ ! -f "$PROJECT_PATH/specs/STANDARDS.md" ]] && [[ -f "$SCRIPT_DIR/templates/STANDARDS.template.md" ]]; then
-        cp "$SCRIPT_DIR/templates/STANDARDS.template.md" "$PROJECT_PATH/specs/STANDARDS.md"
+    if [[ ! -f "$PROJECT_PATH/.multiclaude/specs/STANDARDS.md" ]] && [[ -f "$SCRIPT_DIR/templates/STANDARDS.template.md" ]]; then
+        cp "$SCRIPT_DIR/templates/STANDARDS.template.md" "$PROJECT_PATH/.multiclaude/specs/STANDARDS.md"
         printf "  ${GREEN}✓${NC} STANDARDS.md\n"
     fi
 
@@ -307,7 +331,7 @@ launch_agents() {
     # Lock window name to prevent Claude Code from renaming it
     tmux set-option -t "$SESSION_NAME:supervisor" allow-rename off
 
-    local supervisor_prompt="You are the SUPERVISOR AGENT. Read .claude/SUPERVISOR.md for your complete instructions. You coordinate all workers and the QA agent via the central mailbox at .claude/mailbox. Start by reading your instructions, then monitor worker status logs at worktrees/feature-*/.claude/status.log"
+    local supervisor_prompt="You are the SUPERVISOR AGENT. Read .multiclaude/SUPERVISOR.md for your complete instructions. You coordinate all workers and the QA agent via the central mailbox at .multiclaude/mailbox. Start by reading your instructions, then monitor worker status logs at .multiclaude/worktrees/feature-*/.multiclaude/status.log"
 
     sleep 2
     tmux send-keys -t "$SESSION_NAME:supervisor" "$supervisor_prompt"
@@ -327,7 +351,7 @@ launch_agents() {
     # Lock window name to prevent Claude Code from renaming it
     tmux set-option -t "$SESSION_NAME:qa" allow-rename off
 
-    local qa_prompt="You are the QA AGENT. Read .claude/QA_INSTRUCTIONS.md for your complete instructions. You MUST WAIT for a RUN_QA signal (delivered via tmux from the mailbox router) before running any tests. Start by reading your instructions, then wait for messages."
+    local qa_prompt="You are the QA AGENT. Read .multiclaude/QA_INSTRUCTIONS.md for your complete instructions. You MUST WAIT for a RUN_QA signal (delivered via tmux from the mailbox router) before running any tests. Start by reading your instructions, then wait for messages."
 
     sleep 2
     tmux send-keys -t "$SESSION_NAME:qa" "$qa_prompt"
@@ -340,7 +364,7 @@ launch_agents() {
     #─────────────────────────────────────────────────────────────────────
     # Windows 3+: Workers
     #─────────────────────────────────────────────────────────────────────
-    for worktree in "$PROJECT_PATH"/worktrees/feature-*; do
+    for worktree in "$PROJECT_PATH"/.multiclaude/worktrees/feature-*; do
         if [[ -d "$worktree" ]]; then
             local feature=$(basename "$worktree" | sed 's/feature-//')
 
@@ -351,7 +375,7 @@ launch_agents() {
             # Lock window name to prevent Claude Code from renaming it
             tmux set-option -t "$SESSION_NAME:$feature" allow-rename off
 
-            local worker_prompt="You are a WORKER AGENT implementing the '$feature' feature. Read .claude/WORKER.md for your complete instructions. Your feature spec is in .claude/FEATURE_SPEC.md. Log your status to .claude/status.log. Use the central mailbox at \$MAIN_REPO/.claude/mailbox for communication. Start by reading your instructions."
+            local worker_prompt="You are a WORKER AGENT implementing the '$feature' feature. Read .multiclaude/WORKER.md for your complete instructions. Your feature spec is in .multiclaude/FEATURE_SPEC.md. Log your status to .multiclaude/status.log. Use the central mailbox at \$MAIN_REPO/.multiclaude/mailbox for communication. Start by reading your instructions."
 
             sleep 2
             tmux send-keys -t "$SESSION_NAME:$feature" "$worker_prompt"
@@ -380,10 +404,10 @@ launch_agents() {
 #───────────────────────────────────────────────────────────────────────────────
 
 generate_pr_body() {
-    local qa_report="$PROJECT_PATH/.claude/qa-reports/latest.json"
+    local qa_report="$PROJECT_PATH/.multiclaude/qa-reports/latest.json"
 
     # Get features list
-    local features=$(cat "$PROJECT_PATH/specs/.features" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+    local features=$(cat "$PROJECT_PATH/.multiclaude/specs/.features" 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
 
     # Get QA summary if report exists
     local qa_summary="All standards validated"
@@ -417,7 +441,7 @@ maybe_create_pr() {
     fi
 
     # Already attempted?
-    if [[ -f "$PROJECT_PATH/.claude/PR_CREATED" ]] || [[ -f "$PROJECT_PATH/.claude/PR_SKIPPED" ]]; then
+    if [[ -f "$PROJECT_PATH/.multiclaude/PR_CREATED" ]] || [[ -f "$PROJECT_PATH/.multiclaude/PR_SKIPPED" ]]; then
         return 0
     fi
 
@@ -426,44 +450,43 @@ maybe_create_pr() {
     # Check gh CLI available
     if ! command -v gh &>/dev/null; then
         log_warn "GitHub CLI (gh) not found, skipping PR creation"
-        touch "$PROJECT_PATH/.claude/PR_SKIPPED"
+        touch "$PROJECT_PATH/.multiclaude/PR_SKIPPED"
         return 0
     fi
 
     # Check gh authenticated
     if ! gh auth status &>/dev/null 2>&1; then
         log_warn "GitHub CLI not authenticated, skipping PR creation"
-        touch "$PROJECT_PATH/.claude/PR_SKIPPED"
+        touch "$PROJECT_PATH/.multiclaude/PR_SKIPPED"
         return 0
     fi
 
     # Check remote exists
     if ! git remote get-url origin &>/dev/null 2>&1; then
         log_warn "No git remote 'origin' configured, skipping PR creation"
-        touch "$PROJECT_PATH/.claude/PR_SKIPPED"
+        touch "$PROJECT_PATH/.multiclaude/PR_SKIPPED"
         return 0
     fi
 
     cd "$PROJECT_PATH"
 
-    # Create a new branch for the PR (snapshot current main state)
-    local timestamp=$(date +%Y%m%d-%H%M%S)
-    local pr_branch="multiclaude-pr-${timestamp}"
-    local base_branch="main"
+    # Read the base branch name
+    local base_branch_file="$PROJECT_PATH/.multiclaude/BASE_BRANCH"
+    if [[ ! -f "$base_branch_file" ]]; then
+        log_warn "No base branch file found, skipping PR creation"
+        touch "$PROJECT_PATH/.multiclaude/PR_SKIPPED"
+        return 0
+    fi
 
-    log_step "Creating PR branch: $pr_branch"
-    git checkout -b "$pr_branch" 2>/dev/null || {
-        log_error "Failed to create branch"
-        touch "$PROJECT_PATH/.claude/PR_SKIPPED"
-        return 1
-    }
+    local pr_branch
+    pr_branch=$(cat "$base_branch_file")
 
-    # Push the new branch to remote
-    log_step "Pushing branch to origin..."
+    log_step "Pushing base branch: $pr_branch"
+    git checkout "$pr_branch" 2>/dev/null
+
     if ! git push -u origin "$pr_branch" 2>/dev/null; then
         log_error "Failed to push branch"
-        git checkout main 2>/dev/null
-        touch "$PROJECT_PATH/.claude/PR_SKIPPED"
+        touch "$PROJECT_PATH/.multiclaude/PR_SKIPPED"
         return 1
     fi
 
@@ -471,26 +494,24 @@ maybe_create_pr() {
     local pr_body=$(generate_pr_body)
     local pr_title="[multiclaude] ${PROJECT_NAME} - QA Validated"
 
-    log_step "Creating PR: $pr_branch -> $base_branch"
+    log_step "Creating PR: $pr_branch -> main"
 
     # Create PR
     local pr_url
     pr_url=$(gh pr create \
-        --base "$base_branch" \
+        --base "main" \
         --head "$pr_branch" \
         --title "$pr_title" \
         --body "$pr_body" 2>&1)
 
     if [[ $? -eq 0 ]]; then
         log_success "PR created: $pr_url"
-        echo "$(date -Iseconds) - PR created: $pr_url" > "$PROJECT_PATH/.claude/pr.log"
-        touch "$PROJECT_PATH/.claude/PR_CREATED"
-        git checkout main 2>/dev/null
+        echo "$(date -Iseconds) - PR created: $pr_url" > "$PROJECT_PATH/.multiclaude/pr.log"
+        touch "$PROJECT_PATH/.multiclaude/PR_CREATED"
         return 0
     else
         log_error "Failed to create PR: $pr_url"
-        git checkout main 2>/dev/null
-        touch "$PROJECT_PATH/.claude/PR_SKIPPED"
+        touch "$PROJECT_PATH/.multiclaude/PR_SKIPPED"
         return 1
     fi
 }
@@ -501,37 +522,37 @@ cleanup_project() {
     cd "$PROJECT_PATH"
 
     # Remove worktrees
-    if [[ -d "$PROJECT_PATH/worktrees" ]]; then
+    if [[ -d "$PROJECT_PATH/.multiclaude/worktrees" ]]; then
         log_step "Removing worktrees..."
-        for worktree in "$PROJECT_PATH"/worktrees/feature-*; do
+        for worktree in "$PROJECT_PATH"/.multiclaude/worktrees/feature-*; do
             if [[ -d "$worktree" ]]; then
                 local feature=$(basename "$worktree")
                 git worktree remove "$worktree" --force 2>/dev/null || rm -rf "$worktree"
                 log_success "Removed $feature"
             fi
         done
-        rmdir "$PROJECT_PATH/worktrees" 2>/dev/null || true
+        rmdir "$PROJECT_PATH/.multiclaude/worktrees" 2>/dev/null || true
     fi
 
-    # Remove feature branches
+    # Remove feature branches (but NOT the base branch — it's the PR branch)
     log_step "Removing feature branches..."
+    local base_branch=""
+    [[ -f "$PROJECT_PATH/.multiclaude/BASE_BRANCH" ]] && base_branch=$(cat "$PROJECT_PATH/.multiclaude/BASE_BRANCH")
     for branch in $(git branch --list 'feature/*' 2>/dev/null); do
         git branch -D "$branch" 2>/dev/null && log_success "Deleted branch $branch"
     done
+    if [[ -n "$base_branch" ]]; then
+        log_success "Kept base branch: $base_branch (PR branch)"
+    fi
 
     # Archive state files to prevent re-triggering
     local archive_dir="$PROJECT_PATH/.multiclaude-complete-$(date +%Y%m%d-%H%M%S)"
     log_step "Archiving state files to $archive_dir..."
     mkdir -p "$archive_dir"
 
-    if [[ -d "$PROJECT_PATH/.claude" ]]; then
-        mv "$PROJECT_PATH/.claude" "$archive_dir/.claude"
-        log_success "Archived .claude/"
-    fi
-
-    if [[ -d "$PROJECT_PATH/specs" ]]; then
-        mv "$PROJECT_PATH/specs" "$archive_dir/specs"
-        log_success "Archived specs/"
+    if [[ -d "$PROJECT_PATH/.multiclaude" ]]; then
+        mv "$PROJECT_PATH/.multiclaude" "$archive_dir/.multiclaude"
+        log_success "Archived .multiclaude/"
     fi
 
     # Stop mailbox watcher
@@ -595,18 +616,21 @@ run_dashboard() {
         local total=0
         local complete=0
 
-        for worktree in "$PROJECT_PATH"/worktrees/feature-*; do
+        for worktree in "$PROJECT_PATH"/.multiclaude/worktrees/feature-*; do
             if [[ -d "$worktree" ]]; then
                 ((total++))
                 local feature=$(basename "$worktree" | sed 's/feature-//')
-                local log="$worktree/.claude/status.log"
+                local log="$worktree/.multiclaude/status.log"
 
                 if [[ -f "$log" ]]; then
                     local last=$(grep -E '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' "$log" 2>/dev/null | tail -1)
                     local status=$(echo "$last" | grep -oE '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' | tr -d '[]')
                     local msg=$(echo "$last" | sed 's/.*\] //' | cut -c1-40)
 
-                    [[ "$status" == "COMPLETE" ]] && ((complete++))
+                    if [[ "$status" == "COMPLETE" ]]; then
+                        ((complete++))
+                        remove_feature "$feature"
+                    fi
 
                     case "$status" in
                         COMPLETE)    color="${GREEN}" ;;
@@ -627,7 +651,7 @@ run_dashboard() {
 
         # Project status
         printf "${BOLD}Status:${NC} "
-        if [[ -f "$PROJECT_PATH/.claude/PROJECT_COMPLETE" ]]; then
+        if [[ -f "$PROJECT_PATH/.multiclaude/PROJECT_COMPLETE" ]]; then
             printf "${GREEN}PROJECT COMPLETE${NC}\n"
 
             # Trigger PR creation and cleanup on completion
@@ -635,11 +659,11 @@ run_dashboard() {
             maybe_create_pr
             cleanup_project
             # cleanup_project exits, so we won't reach here
-        elif [[ -f "$PROJECT_PATH/.claude/QA_COMPLETE" ]]; then
+        elif [[ -f "$PROJECT_PATH/.multiclaude/QA_COMPLETE" ]]; then
             printf "${GREEN}QA PASSED${NC}\n"
-        elif [[ -f "$PROJECT_PATH/.claude/QA_NEEDS_FIXES" ]]; then
+        elif [[ -f "$PROJECT_PATH/.multiclaude/QA_NEEDS_FIXES" ]]; then
             printf "${YELLOW}QA NEEDS FIXES${NC}\n"
-        elif [[ -f "$PROJECT_PATH/.claude/ALL_MERGED" ]]; then
+        elif [[ -f "$PROJECT_PATH/.multiclaude/ALL_MERGED" ]]; then
             printf "${CYAN}MERGED - QA PENDING${NC}\n"
         else
             printf "${YELLOW}IN PROGRESS${NC} ($complete/$total)\n"
@@ -650,9 +674,9 @@ run_dashboard() {
         # Recent messages
         printf "${BOLD}Messages:${NC}\n"
 
-        if [[ -f "$PROJECT_PATH/.claude/mailbox" ]]; then
+        if [[ -f "$PROJECT_PATH/.multiclaude/mailbox" ]]; then
             local msg_count
-            msg_count=$(grep -c "^--- MESSAGE ---$" "$PROJECT_PATH/.claude/mailbox" 2>/dev/null | head -1 || echo "0")
+            msg_count=$(grep -c "^--- MESSAGE ---$" "$PROJECT_PATH/.multiclaude/mailbox" 2>/dev/null | head -1 || echo "0")
             msg_count=${msg_count:-0}
 
             if [[ "$msg_count" -gt 0 ]]; then
@@ -672,7 +696,7 @@ run_dashboard() {
                             if (msgs[i] != "") print msgs[i]
                         }
                     }
-                ' "$PROJECT_PATH/.claude/mailbox"
+                ' "$PROJECT_PATH/.multiclaude/mailbox"
             else
                 printf "  ${DIM}(none)${NC}\n"
             fi
@@ -701,8 +725,8 @@ if [[ ${#features[@]} -eq 0 ]]; then
     log_error "No features found!"
     echo ""
     echo "Create feature specs in:"
-    echo "  - specs/features/*.spec.md"
-    echo "  - OR specs/.features (one feature name per line)"
+    echo "  - .multiclaude/specs/features/*.spec.md"
+    echo "  - OR .multiclaude/specs/.features (one feature name per line)"
     echo ""
     echo "Then run this again."
     exit 1

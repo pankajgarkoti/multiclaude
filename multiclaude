@@ -156,7 +156,7 @@ cmd_run() {
     print_banner
 
     # Check if path is a valid project
-    if [[ ! -d "$path/specs" ]] && [[ ! -d "$path/.claude" ]]; then
+    if [[ ! -d "$path/.multiclaude/specs" ]] && [[ ! -d "$path/.multiclaude" ]]; then
         printf "${RED}Error: Not a valid project directory${NC}\n"
         echo "Run 'multiclaude new <name>' to create a project first."
         exit 1
@@ -257,15 +257,15 @@ cmd_status() {
 
     # Check communication files
     printf "${BOLD}Communication Files:${NC}\n"
-    if [[ -f "$path/.claude/supervisor-inbox.md" ]]; then
-        local lines=$(wc -l < "$path/.claude/supervisor-inbox.md" | tr -d ' ')
+    if [[ -f "$path/.multiclaude/supervisor-inbox.md" ]]; then
+        local lines=$(wc -l < "$path/.multiclaude/supervisor-inbox.md" | tr -d ' ')
         printf "  Supervisor inbox: ${GREEN}exists${NC} ($lines lines)\n"
     else
         printf "  Supervisor inbox: ${RED}missing${NC}\n"
     fi
 
-    if [[ -f "$path/.claude/qa-inbox.md" ]]; then
-        local lines=$(wc -l < "$path/.claude/qa-inbox.md" | tr -d ' ')
+    if [[ -f "$path/.multiclaude/qa-inbox.md" ]]; then
+        local lines=$(wc -l < "$path/.multiclaude/qa-inbox.md" | tr -d ' ')
         printf "  QA inbox:         ${GREEN}exists${NC} ($lines lines)\n"
     else
         printf "  QA inbox:         ${RED}missing${NC}\n"
@@ -273,7 +273,7 @@ cmd_status() {
     echo ""
 
     # Check for worktrees
-    if [[ ! -d "$path/worktrees" ]]; then
+    if [[ ! -d "$path/.multiclaude/worktrees" ]]; then
         echo "No worktrees found. Features not yet set up."
         exit 0
     fi
@@ -286,11 +286,11 @@ cmd_status() {
     local complete=0
     local in_progress=0
 
-    for worktree in "$path"/worktrees/feature-*; do
+    for worktree in "$path"/.multiclaude/worktrees/feature-*; do
         if [[ -d "$worktree" ]]; then
             ((total++))
             local feature=$(basename "$worktree" | sed 's/feature-//')
-            local log="$worktree/.claude/status.log"
+            local log="$worktree/.multiclaude/status.log"
 
             if [[ -f "$log" ]]; then
                 local last=$(grep -E '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' "$log" 2>/dev/null | tail -1)
@@ -317,15 +317,15 @@ cmd_status() {
     echo ""
 
     # Check for completion markers
-    if [[ -f "$path/.claude/PROJECT_COMPLETE" ]]; then
+    if [[ -f "$path/.multiclaude/PROJECT_COMPLETE" ]]; then
         printf "${GREEN}╔════════════════════════════════════════╗${NC}\n"
         printf "${GREEN}║         PROJECT COMPLETE!              ║${NC}\n"
         printf "${GREEN}╚════════════════════════════════════════╝${NC}\n"
-    elif [[ -f "$path/.claude/QA_COMPLETE" ]]; then
+    elif [[ -f "$path/.multiclaude/QA_COMPLETE" ]]; then
         printf "${GREEN}QA has passed. Awaiting final completion.${NC}\n"
-    elif [[ -f "$path/.claude/QA_NEEDS_FIXES" ]]; then
+    elif [[ -f "$path/.multiclaude/QA_NEEDS_FIXES" ]]; then
         printf "${YELLOW}QA found issues. Workers should check their inboxes.${NC}\n"
-    elif [[ -f "$path/.claude/ALL_MERGED" ]]; then
+    elif [[ -f "$path/.multiclaude/ALL_MERGED" ]]; then
         printf "${CYAN}All features merged. QA should be running.${NC}\n"
     fi
     echo ""
@@ -406,24 +406,24 @@ cmd_logs() {
     print_banner
 
     if [[ -n "$agent" ]]; then
-        local log_file="$path/worktrees/feature-$agent/.claude/status.log"
+        local log_file="$path/.multiclaude/worktrees/feature-$agent/.multiclaude/status.log"
         if [[ ! -f "$log_file" ]]; then
             printf "${RED}Error: No log for agent: %s${NC}\n" "$agent"
             echo "Available agents:"
-            for wt in "$path"/worktrees/feature-*; do
+            for wt in "$path"/.multiclaude/worktrees/feature-*; do
                 [[ -d "$wt" ]] && echo "  - $(basename "$wt" | sed 's/feature-//')"
             done
             exit 1
         fi
     else
-        local log_file="$path/.claude/mailbox"
+        local log_file="$path/.multiclaude/mailbox"
         if [[ ! -f "$log_file" ]]; then
             printf "${YELLOW}No mailbox found. Showing worker status logs:${NC}\n\n"
-            for wt in "$path"/worktrees/feature-*; do
+            for wt in "$path"/.multiclaude/worktrees/feature-*; do
                 if [[ -d "$wt" ]]; then
                     local feat=$(basename "$wt" | sed 's/feature-//')
                     printf "${CYAN}=== %s ===${NC}\n" "$feat"
-                    tail -5 "$wt/.claude/status.log" 2>/dev/null || echo "(no log)"
+                    tail -5 "$wt/.multiclaude/status.log" 2>/dev/null || echo "(no log)"
                     echo ""
                 fi
             done
