@@ -69,6 +69,7 @@ print_usage() {
     printf "  ${CYAN}multiclaude attach [path]${NC}           Attach to tmux session\n"
     printf "  ${CYAN}multiclaude monitor [path]${NC}          Restart dashboard\n"
     printf "  ${CYAN}multiclaude install${NC}                 Install/update multiclaude\n"
+  printf "  ${CYAN}multiclaude update${NC}                  Self-update from remote\n"
     echo ""
     printf "${BOLD}Options:${NC}\n"
     printf "  ${DIM}--auto-pr${NC}        Create GitHub PR when QA passes\n"
@@ -442,6 +443,11 @@ cmd_install() {
     "$SCRIPT_DIR/install.sh"
 }
 
+cmd_update() {
+    printf "${CYAN}Updating multiclaude...${NC}\n"
+    curl -fsSL https://raw.githubusercontent.com/pankajgarkoti/multiclaude/main/remote-install.sh | bash
+}
+
 # Parse global flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -488,6 +494,9 @@ case "${1:-}" in
         ;;
     install)
         cmd_install
+        ;;
+    update)
+        cmd_update
         ;;
     -v|--version)
         echo "multiclaude v${VERSION}"
