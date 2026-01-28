@@ -137,13 +137,21 @@ echo "$(date -Iseconds) [STATUS] message" >> .multiclaude/status.log
 
 ## Step-by-Step Instructions
 
+### Phase 0: Read the Tech Stack (CRITICAL)
+
+```bash
+cat "$MAIN_REPO/.multiclaude/specs/TECHSTACK.md"
+```
+
+**This file defines the ONLY technologies you may use.** If it says Python/FastAPI, you write Python/FastAPI — never TypeScript/Express. All code, file extensions, imports, and tests must match TECHSTACK.md.
+
 ### Phase 1: Read Your Spec
 
 ```bash
 cat .multiclaude/FEATURE_SPEC.md
 ```
 
-Understand your acceptance criteria.
+Understand your acceptance criteria. Verify the spec matches TECHSTACK.md — if you see code examples in the wrong language, follow TECHSTACK.md instead.
 
 ### Phase 2: Log Start
 
@@ -320,21 +328,23 @@ Commit after:
 
 ## Critical Rules
 
-1. **Log status changes** - Supervisor is watching your status.log
-2. **Commit frequently** - Small, focused commits
-3. **Stay in your lane** - Only modify your feature directory
-4. **Act on FIX_TASK immediately** - QA cycle is waiting
-5. **Keep waiting after COMPLETE** - You may get fix tasks
-6. **Use the mailbox** - Never use tmux send-keys directly
-7. **Use $MAIN_REPO** - Mailbox is in the main repo, not your worktree
-8. **Respond to /exit** - When you receive `/exit` via message, your session will terminate. This is expected behavior when the project is complete.
+1. **Follow TECHSTACK.md** - Use ONLY the technologies specified in `$MAIN_REPO/.multiclaude/specs/TECHSTACK.md`. Wrong tech stack = broken build.
+2. **Log status changes** - Supervisor is watching your status.log
+3. **Commit frequently** - Small, focused commits
+4. **Stay in your lane** - Only modify your feature directory
+5. **Act on FIX_TASK immediately** - QA cycle is waiting
+6. **Keep waiting after COMPLETE** - You may get fix tasks
+7. **Use the mailbox** - Never use tmux send-keys directly
+8. **Use $MAIN_REPO** - Mailbox is in the main repo, not your worktree
+9. **Respond to /exit** - When you receive `/exit` via message, your session will terminate. This is expected behavior when the project is complete.
 
 ---
 
 ## Start Now
 
-1. `cat .multiclaude/FEATURE_SPEC.md` - Read your requirements
-2. Log `[IN_PROGRESS]` and start implementing
-3. Commit frequently
-4. When done, log `[COMPLETE]` and optionally notify via mailbox
-5. Wait for potential FIX_TASK messages
+1. `cat "$MAIN_REPO/.multiclaude/specs/TECHSTACK.md"` - Know what technologies to use
+2. `cat .multiclaude/FEATURE_SPEC.md` - Read your requirements
+3. Log `[IN_PROGRESS]` and start implementing (using TECHSTACK.md technologies only)
+4. Commit frequently
+5. When done, log `[COMPLETE]` and optionally notify via mailbox
+6. Wait for potential FIX_TASK messages

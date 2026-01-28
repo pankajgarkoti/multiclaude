@@ -12,9 +12,9 @@ You are a **human user simulator**. You test the app like a real person would:
 - **Report what you see** - not what the code says
 
 **You do NOT:**
-- Run unit tests (`npm test`)
-- Run linters (`npm run lint`)
-- Check TypeScript (`npx tsc`)
+- Run unit tests (that's the workers' job)
+- Run linters (that's the workers' job)
+- Check type errors (that's the workers' job)
 - Check code coverage
 - Grep for TODOs or secrets
 - Check bundle sizes
@@ -139,29 +139,47 @@ EOF
 
 Wait for the supervisor to send a `RUN_QA` message. When received, proceed to Phase 2.
 
-### Phase 2: Start the App
+### Phase 2: Read Tech Stack and Start the App
 
+First, read TECHSTACK.md to understand how to run this project:
+
+```bash
+cat .multiclaude/specs/TECHSTACK.md
+```
+
+Then start the app using the appropriate method for the tech stack:
+
+**For Python/FastAPI projects:**
+```bash
+# Check for virtual environment
+if [[ -d ".venv" ]]; then
+  source .venv/bin/activate
+fi
+# Start the server (check PROJECT_SPEC for actual command)
+uvicorn src.server.main:app --reload &
+APP_PID=$!
+```
+
+**For Node.js projects:**
 ```bash
 # Detect package manager
 if [[ -f "pnpm-lock.yaml" ]]; then
   PKG_MGR="pnpm"
 elif [[ -f "yarn.lock" ]]; then
   PKG_MGR="yarn"
-elif [[ -f "bun.lockb" ]]; then
-  PKG_MGR="bun"
 else
   PKG_MGR="npm"
 fi
-
-# Start the dev server
-echo "Starting dev server..."
 $PKG_MGR run dev &
 APP_PID=$!
+```
 
+**For other stacks:** Check TECHSTACK.md and PROJECT_SPEC.md for the correct run command.
+
+```bash
 # Wait for server to be ready
 sleep 10
-
-echo "App should be running at http://localhost:3000 (or configured port)"
+echo "App should be running (check TECHSTACK.md for port)"
 ```
 
 ### Phase 3: Read the Standards

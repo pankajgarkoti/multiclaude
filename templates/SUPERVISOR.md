@@ -222,17 +222,31 @@ echo "$(date -Iseconds) - All features merged" > .multiclaude/ALL_MERGED
 
 **CRITICAL:** After merging, verify the combined code builds and runs before QA.
 
+First, read TECHSTACK.md to determine the correct build commands:
+
+```bash
+cat .multiclaude/specs/TECHSTACK.md
+```
+
+Then run the appropriate commands for your tech stack:
+
 ```bash
 echo "=== Phase 2.5: Build Verification ==="
 echo "$(date -Iseconds) [BUILD_CHECK] Starting post-merge verification" >> .multiclaude/supervisor.log
 
-# Install dependencies (in case new deps were added)
+# Install dependencies based on tech stack (check TECHSTACK.md)
 echo "Installing dependencies..."
-$PKG_MGR install
+# Python: pip install -e . OR uv sync
+# Node.js: npm install / pnpm install / yarn
+# Rust: cargo build
+# Go: go mod download
 
-# Run build
+# Run build/type check based on tech stack
 echo "Running build..."
-$PKG_MGR run build
+# Python: python -m py_compile src/**/*.py OR mypy src/
+# Node.js: npm run build
+# Rust: cargo build
+# Go: go build ./...
 
 if [[ $? -ne 0 ]]; then
   echo "ERROR: Build failed after merge!"
@@ -246,8 +260,12 @@ if [[ $? -ne 0 ]]; then
   exit 1
 fi
 
-# Start dev server briefly to verify it runs
+# Start dev server briefly to verify it runs (command depends on TECHSTACK.md)
 echo "Starting dev server to verify it runs..."
+# Python/FastAPI: uvicorn src.server.main:app &
+# Node.js: npm run dev &
+# Check TECHSTACK.md for the correct command
+# Example for Node.js:
 $PKG_MGR run dev &
 DEV_PID=$!
 sleep 10

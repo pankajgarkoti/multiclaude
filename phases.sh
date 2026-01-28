@@ -284,41 +284,85 @@ You are a SPEC ENRICHMENT AGENT. Your job is to enrich feature specifications wi
 
 ${context_section}
 
+## ╔══════════════════════════════════════════════════════════════════════════════╗
+## ║  STEP 1: EXTRACT TECH STACK (MANDATORY - DO THIS FIRST)                     ║
+## ╚══════════════════════════════════════════════════════════════════════════════╝
+
+Before writing ANY feature spec, you MUST:
+
+1. Read \`.multiclaude/specs/PROJECT_SPEC.md\`
+2. Find the tech stack (look for "Technology Stack", "Tech Stack", "Technologies")
+3. Create \`.multiclaude/specs/TECHSTACK.md\` with the EXACT technologies specified
+
+**TECHSTACK.md format:**
+\`\`\`markdown
+# Project Tech Stack
+
+> **AUTHORITATIVE SOURCE** - All specs and code MUST use only these technologies.
+
+## Language
+- [e.g., Python 3.11+]
+
+## Frameworks
+- [e.g., FastAPI]
+
+## Testing
+- [e.g., pytest]
+
+## Package Manager
+- [e.g., uv / pip]
+
+## Other
+- [e.g., SQLite, Bash scripts]
+\`\`\`
+
+**RULES:**
+- Copy EXACTLY what PROJECT_SPEC.md says - do NOT substitute technologies
+- If PROJECT_SPEC says "FastAPI (Python)", write Python/FastAPI - NOT TypeScript/Express
+- If no tech stack section exists, infer from config files (pyproject.toml, package.json)
+
+## ╔══════════════════════════════════════════════════════════════════════════════╗
+## ║  STEP 2: ENFORCE TECH STACK IN ALL SPECS                                    ║
+## ╚══════════════════════════════════════════════════════════════════════════════╝
+
+Every feature spec MUST match TECHSTACK.md:
+- Language: Use Python if TECHSTACK says Python (NOT TypeScript)
+- Framework: Use FastAPI if TECHSTACK says FastAPI (NOT Express)
+- File extensions: .py for Python, .ts for TypeScript
+- Imports: from fastapi import... (NOT import express)
+- Tests: pytest (NOT Jest)
+
+**If a spec uses wrong tech stack → REWRITE IT COMPLETELY**
+
 ## Inputs
 
-1. **Research findings**: Read \`.multiclaude/research-findings.md\` (if it exists)
-2. **Project specification**: Read \`.multiclaude/specs/PROJECT_SPEC.md\` (if it exists)
-3. **Existing feature specs**: Read all files in \`.multiclaude/specs/features/\`
-4. **Existing codebase**: Explore the project files to understand the actual code structure
+1. Read \`.multiclaude/specs/PROJECT_SPEC.md\` - extract tech stack FIRST
+2. Create \`.multiclaude/specs/TECHSTACK.md\` - before anything else
+3. Read \`.multiclaude/research-findings.md\` (if exists)
+4. Read \`.multiclaude/specs/features/\` - check each for tech stack compliance
+5. Explore codebase to confirm tech stack
 
 ## Existing specs to enrich:
 ${existing_specs}
 
 ## Your Tasks
 
-For EACH feature spec in \`.multiclaude/specs/features/\`:
+1. **Create TECHSTACK.md** from PROJECT_SPEC.md (mandatory first step)
+2. **For each feature spec:**
+   - Check: Does it match TECHSTACK.md?
+   - If NO: Rewrite the entire spec using correct tech stack
+   - If YES: Enrich with concrete paths, interfaces, acceptance criteria
+3. **Create new specs** if none exist (all must use TECHSTACK.md)
+4. **Create .features file** listing all feature names
 
-1. **Read the codebase** - understand project structure, existing files, tech stack
-2. **Enrich the spec** with:
-   - Concrete file paths that exist or should be created (based on actual project structure)
-   - Real interfaces/types from the codebase (not hypothetical TypeScript if the project is Python)
-   - Specific acceptance criteria (not placeholder TODOs)
-   - Dependencies on other features or external packages
-   - Testing approach appropriate for the actual tech stack
-3. **Preserve** any existing content that is already concrete/specific
-4. **Replace** placeholder content (TODO, template comments, hypothetical examples)
+## Final Verification
 
-If no feature specs exist yet AND a PROJECT_SPEC.md exists:
-1. Read the PROJECT_SPEC and research findings
-2. Break the project into 3-7 independent feature modules
-3. Create \`.multiclaude/specs/features/<name>.spec.md\` for each
-4. Create \`.multiclaude/specs/.features\` with one feature name per line
-
-## Guidelines
-- Match the actual tech stack (don't assume TypeScript/Node.js)
-- File paths should reflect real project structure
-- Acceptance criteria should be testable and specific
-- Each spec should be self-contained enough for an independent worker
+Before outputting SPECS_ENRICHED:
+- [ ] TECHSTACK.md exists and matches PROJECT_SPEC.md
+- [ ] All specs use the language from TECHSTACK.md
+- [ ] All code blocks use correct syntax
+- [ ] All file paths use correct extensions
+- [ ] All imports are from correct ecosystem
 
 When done, output: SPECS_ENRICHED
 PROMPT_EOF
@@ -355,26 +399,19 @@ run_standards_phase() {
     read -r -d '' standards_prompt << 'PROMPT_EOF' || true
 You are a STANDARDS GENERATION AGENT. Generate project-specific quality standards.
 
-## Step 1: Understand the Project
+## Step 1: Read the Tech Stack
 
-Read these files (if they exist):
+**CRITICAL**: Read `.multiclaude/specs/TECHSTACK.md` first. This is the authoritative source.
+Do NOT re-detect or guess the tech stack — use what TECHSTACK.md says.
+
+If TECHSTACK.md doesn't exist, read `.multiclaude/specs/PROJECT_SPEC.md` and extract it.
+
+## Step 2: Understand the Project
+
+Read these files:
+- `.multiclaude/specs/TECHSTACK.md` - **authoritative tech stack** (use this!)
 - `.multiclaude/specs/PROJECT_SPEC.md` - project purpose, goals, features
 - `.multiclaude/research-findings.md` - industry patterns and best practices
-
-## Step 2: Detect the Tech Stack
-
-Inspect the project root for config files to determine the ACTUAL tech stack:
-- `package.json` → Node.js/JavaScript/TypeScript (check for `typescript` dep)
-- `Cargo.toml` → Rust
-- `requirements.txt` / `pyproject.toml` / `setup.py` → Python
-- `go.mod` → Go
-- `Gemfile` → Ruby
-- `pom.xml` / `build.gradle` → Java/Kotlin
-- `Makefile`, `CMakeLists.txt` → C/C++
-- Check for framework-specific files: `next.config.*`, `vite.config.*`, `angular.json`, etc.
-
-If NO config files exist yet (greenfield project), infer the likely stack from
-PROJECT_SPEC.md and research findings, and note that in the standards.
 
 ## Step 3: Generate Standards
 
@@ -386,8 +423,8 @@ Create `.multiclaude/specs/STANDARDS.md` following this format:
 This document defines quality standards the QA Agent will verify.
 Standards are derived from research into similar products and project requirements.
 
-## Detected Tech Stack
-[List what you found: language, framework, test runner, linter, etc.]
+## Tech Stack (from TECHSTACK.md)
+[Copy the tech stack from TECHSTACK.md - do not re-detect]
 
 ## Testing Standards
 
