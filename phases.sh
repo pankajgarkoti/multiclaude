@@ -126,8 +126,10 @@ _phases_run_with_spinner() {
     done
     wait "$pid" || true
     kill "$parser_pid" 2>/dev/null; wait "$parser_pid" 2>/dev/null || true
-    # Clear both lines
-    printf "\033[1A\033[2K\033[1B\033[2K\033[1A" >&2
+    # Clear spinner line (go up, clear, go to column 0)
+    # Clear detail line (go down, clear)
+    # Return to spinner line position
+    printf "\033[1A\033[2K\033[G\033[1B\033[2K\033[1A\033[G" >&2
     rm -f "$output_file" "$status_file"
 
     # Restore default INT handler and re-raise if we were interrupted
