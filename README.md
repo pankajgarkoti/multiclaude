@@ -58,11 +58,14 @@ multiclaude new -f project-brief.txt
 cd existing-repo
 multiclaude add auth
 
-# Run the development session
-multiclaude run .
+# Or add from a brief file (non-interactive)
+multiclaude add -f feature-brief.txt
+
+# Run the development session (defaults to current dir)
+multiclaude run
 
 # With auto-PR creation when QA passes
-multiclaude run . --auto-pr
+multiclaude run --auto-pr
 ```
 
 ### Project Naming
@@ -99,14 +102,14 @@ This runs a bootstrap process that:
 ### Add Feature
 
 ```bash
-# Interactive - prompts for description
+# Add by name - Claude generates the spec
 multiclaude add notifications
 
-# Non-interactive - reads from brief file
+# From a brief file - non-interactive, returns immediately
 multiclaude add -f feature-brief.txt
 ```
 
-Works on any git repo - automatically bootstraps the `specs/` structure if it doesn't exist.
+Works on any git repo - automatically bootstraps the `.multiclaude/specs/` structure if it doesn't exist. Spec enrichment happens later in `monitor.sh` when the development session starts.
 
 #### Non-Interactive Mode for External Invokers
 
@@ -144,6 +147,10 @@ done
 ### Run Development Session
 
 ```bash
+# Run from project directory (defaults to current dir)
+multiclaude run
+
+# Or specify path
 multiclaude run ./my-app
 
 # Auto-create GitHub PR when QA passes (requires gh CLI)
@@ -161,9 +168,10 @@ Gracefully terminates the tmux session and all agents.
 ### View Logs
 
 ```bash
-multiclaude logs ./my-app              # View mailbox
-multiclaude logs ./my-app -f           # Follow mailbox
-multiclaude logs ./my-app --agent auth # View auth worker log
+multiclaude logs ./my-app                # View mailbox
+multiclaude logs ./my-app -f             # Follow mailbox
+multiclaude logs ./my-app --agent auth   # View auth worker log
+multiclaude logs ./my-app -a auth        # Short form
 ```
 
 Creates a tmux session with multiple windows:
@@ -201,13 +209,21 @@ multiclaude monitor ./my-app
 
 Restarts the monitor script in an existing tmux session (useful if the monitor crashed).
 
-### Reinstall/Update
+### Self-Update
+
+```bash
+multiclaude update
+```
+
+Pulls the latest version from the remote repository and reinstalls.
+
+### Reinstall
 
 ```bash
 multiclaude install
 ```
 
-Runs the installer to check dependencies and update the symlink.
+Runs the installer locally to check dependencies and update the symlink.
 
 ## Research Phase
 
@@ -383,9 +399,10 @@ multiclaude monitor ./my-project
 | ------------------ | -------------------------------------------------------- |
 | `multiclaude`      | Main CLI entry point                                     |
 | `bootstrap.sh`     | Creates new project (research, planning, scaffolding)    |
-| `loop.sh`          | Creates tmux session and delegates to monitor.sh         |
-| `monitor.sh`       | Sets up worktrees, launches agents, runs dashboard       |
 | `feature.sh`       | Adds a new feature to existing project                   |
+| `monitor.sh`       | Sets up worktrees, enriches specs, launches agents, runs dashboard |
+| `loop.sh`          | Creates tmux session and delegates to monitor.sh         |
+| `phases.sh`        | Spec enrichment and phase runners (shared library)       |
 | `install.sh`       | Installs dependencies and creates symlink                |
 | `remote-install.sh`| One-liner installer (clones repo then runs install.sh)   |
 
