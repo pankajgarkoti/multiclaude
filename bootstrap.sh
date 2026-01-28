@@ -156,10 +156,9 @@ prompt_multiline() {
 TEMPLATE
 
     # Open editor
-    local editor="${EDITOR:-${VISUAL:-nano}}"
     echo -e "${BOLD}$prompt${NC}"
-    echo -e "${DIM}Opening $editor... Save and exit when done.${NC}"
-    $editor "$tmpfile" </dev/tty >/dev/tty
+    echo -e "${DIM}Opening vim... Save and exit when done.${NC}"
+    vim "$tmpfile" </dev/tty >/dev/tty
 
     # Extract content (remove comment lines, preserve blank lines between paragraphs)
     local result
