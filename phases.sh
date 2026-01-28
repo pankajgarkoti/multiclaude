@@ -116,11 +116,11 @@ _phases_run_with_spinner() {
 
         # Truncate content to terminal width to prevent line wrapping
         local max_label=$(( cols - 10 ))  # room for spinner char + elapsed + padding
-        local max_detail=$(( cols - 6 ))  # room for "  ↳ " prefix
+        local max_detail=$(( cols - 8 ))  # room for "    ↳ " prefix
         local trunc_detail="${last_detail:-starting...}"
         [[ ${#trunc_detail} -gt $max_detail ]] && trunc_detail="${trunc_detail:0:$max_detail}"
-        # Move up 1 line, clear it, print spinner, move down, clear, print detail
-        printf "\033[1A\033[2K  ${CYAN}%s${NC} %s ${DIM}(%ds)${NC}\n\033[2K  ${DIM}↳ %s${NC}" \
+        # Move up 1 line, clear it, print spinner, move down, clear, print detail (indented)
+        printf "\033[1A\033[2K  ${CYAN}%s${NC} %s ${DIM}(%ds)${NC}\n\033[2K    ${DIM}↳ %s${NC}" \
             "${spin:i++%${#spin}:1}" "${label:0:$max_label}" "$elapsed" "$trunc_detail" >&2
         sleep 0.15
     done
