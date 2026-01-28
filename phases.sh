@@ -288,13 +288,16 @@ $context"
 
     local spec_prompt
     read -r -d '' spec_prompt << PROMPT_EOF || true
-You are a SPEC ENRICHMENT AGENT. Your job is to enrich feature specifications with concrete implementation details.
+You are a SPEC ENRICHMENT AGENT. Your job is to:
+1. Extract and document the tech stack
+2. Create the base project scaffold in the CORRECT language
+3. Enrich feature specifications with concrete implementation details
 
 ${context_section}
 
 ## Step 1: Extract Tech Stack (do this first)
 
-Before writing any feature spec:
+Before doing anything else:
 
 1. Read \`.multiclaude/specs/PROJECT_SPEC.md\` and find the tech stack
 2. Create \`.multiclaude/specs/TECHSTACK.md\` containing:
@@ -307,7 +310,34 @@ Before writing any feature spec:
 
 **Critical**: Copy the tech stack from PROJECT_SPEC.md exactly. Do NOT substitute technologies.
 
-## Step 2: Enforce Tech Stack in All Specs
+## Step 2: Create Base Project Scaffold
+
+After creating TECHSTACK.md, set up the base project structure using the CORRECT tech stack.
+
+**Read PROJECT_SPEC.md for the directory structure.** Then create:
+
+1. **Directory structure** as defined in PROJECT_SPEC.md
+2. **Package config files** (if they don't exist):
+   - Python: \`pyproject.toml\` with dependencies from PROJECT_SPEC.md
+   - Node.js: \`package.json\` with dependencies
+3. **Shared modules** in the correct language:
+   - Python: \`src/shared/__init__.py\`, \`src/shared/types.py\` with base Pydantic models
+   - TypeScript: \`src/shared/index.ts\`, \`src/shared/types.ts\` with interfaces
+4. **Feature module stubs** for each feature:
+   - Create the directory: \`src/<feature>/\`
+   - Create \`__init__.py\` (Python) or \`index.ts\` (TypeScript)
+   - Create a minimal service stub in the correct language
+   - Create a test stub in the correct test framework
+5. **Main entry point**:
+   - Python: \`src/__init__.py\` or \`src/main.py\`
+   - TypeScript: \`src/index.ts\`
+
+**CRITICAL**:
+- If PROJECT_SPEC.md says Python/FastAPI, create .py files with Python syntax
+- If PROJECT_SPEC.md says TypeScript/Node, create .ts files with TypeScript syntax
+- NEVER create TypeScript files for a Python project or vice versa
+
+## Step 3: Enforce Tech Stack in All Specs
 
 Every feature spec must use the technologies from TECHSTACK.md:
 - Correct language and file extensions
@@ -318,11 +348,10 @@ If any existing spec uses wrong technologies, rewrite it completely.
 
 ## Inputs
 
-1. Read \`.multiclaude/specs/PROJECT_SPEC.md\` - extract tech stack FIRST
+1. Read \`.multiclaude/specs/PROJECT_SPEC.md\` - extract tech stack and directory structure
 2. Create \`.multiclaude/specs/TECHSTACK.md\` - before anything else
 3. Read \`.multiclaude/research-findings.md\` (if exists)
 4. Read \`.multiclaude/specs/features/\` - check each for tech stack compliance
-5. Explore codebase to confirm tech stack
 
 ## Existing specs to enrich:
 ${existing_specs}
@@ -330,21 +359,34 @@ ${existing_specs}
 ## Your Tasks
 
 1. **Create TECHSTACK.md** from PROJECT_SPEC.md (mandatory first step)
-2. **For each feature spec:**
+2. **Create base project scaffold** in the correct language (Step 2 above)
+3. **For each feature spec:**
    - Check: Does it match TECHSTACK.md?
    - If NO: Rewrite the entire spec using correct tech stack
    - If YES: Enrich with concrete paths, interfaces, acceptance criteria
-3. **Create new specs** if none exist (all must use TECHSTACK.md)
-4. **Create .features file** listing all feature names
+4. **Create new specs** if none exist (all must use TECHSTACK.md)
+   - **IMPORTANT**: Feature spec files MUST be named \`<feature-name>.spec.md\`
+   - Example: \`fastapi-server.spec.md\`, \`auth-system.spec.md\`
+   - Do NOT use \`.md\` alone - always use \`.spec.md\` extension
+5. **Create .features file** listing all feature names (one per line, without extension)
+6. **Create README.md** for the project:
+   - Describe what the project does (from PROJECT_SPEC.md overview)
+   - List key features
+   - Show the tech stack
+   - Include setup/installation commands from TECHSTACK.md
+   - Include development commands (run server, run tests, etc.)
+   - This should be a proper project README, NOT a multiclaude workflow guide
 
 ## Final Verification
 
 Before outputting SPECS_ENRICHED:
 - [ ] TECHSTACK.md exists and matches PROJECT_SPEC.md
+- [ ] Base scaffold uses the CORRECT language (Python .py files for Python projects!)
 - [ ] All specs use the language from TECHSTACK.md
 - [ ] All code blocks use correct syntax
 - [ ] All file paths use correct extensions
 - [ ] All imports are from correct ecosystem
+- [ ] README.md describes the actual project (not multiclaude workflow)
 
 When done, output: SPECS_ENRICHED
 PROMPT_EOF

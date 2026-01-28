@@ -110,8 +110,8 @@ watch_mailbox() {
                         next
                     }
                     in_msg && /^timestamp:/ { next }
-                    in_msg && /^from:/ { from=$2; next }
-                    in_msg && /^to:/ { to=$2; in_body=1; next }
+                    in_msg && !in_body && /^from:/ { from=$2; next }
+                    in_msg && !in_body && /^to:/ { to=$2; in_body=1; next }
                     in_body { body = body $0 "\n" }
                     END {
                         if (in_body && msg_num >= start && to != "") {
@@ -124,11 +124,12 @@ watch_mailbox() {
                     if [[ -n "$to" && -n "$body" ]]; then
                         # Route message via tmux, include sender for context
                         # Use -l (literal) to prevent special character interpretation
-                        tmux send-keys -t "$SESSION_NAME:$to" -l "[from:$from] "
+                        # Use -- to mark end of options (prevents issues if content starts with --)
+                        tmux send-keys -t "$SESSION_NAME:$to" -l -- "[from:$from] "
 
                         # Decode ␤ back to newlines and send line by line
                         echo "$body" | tr '␤' '\n' | while IFS= read -r line || [[ -n "$line" ]]; do
-                            tmux send-keys -t "$SESSION_NAME:$to" -l "$line"
+                            tmux send-keys -t "$SESSION_NAME:$to" -l -- "$line"
                             tmux send-keys -t "$SESSION_NAME:$to" Enter
                             sleep 0.1
                         done

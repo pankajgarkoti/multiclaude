@@ -677,6 +677,9 @@ EOF
     echo "$safe_name"
 }
 
+# DEPRECATED: Base scaffold is now created by the spec enrichment phase in phases.sh
+# This function created hardcoded TypeScript scaffolds regardless of tech stack.
+# Keeping for reference but no longer called.
 create_base_source() {
     local project_dir="$1"
     shift
@@ -822,6 +825,9 @@ $(for feature in "${features[@]}"; do echo "export * from './${feature}';"; done
 EOF
 }
 
+# DEPRECATED: README is now created by the spec enrichment phase in phases.sh
+# This function created a generic multiclaude workflow guide instead of a project-specific README.
+# Keeping for reference but no longer called.
 create_readme() {
     local project_dir="$1"
     local project_name="$2"
@@ -1230,8 +1236,9 @@ main() {
         exit 0
     fi
 
-    create_base_source "$project_dir" "${features[@]}"
-    create_readme "$project_dir" "$project_name"
+    # NOTE: Base source scaffold and README are now created by the spec enrichment phase
+    # in phases.sh. This ensures they use the correct tech stack from TECHSTACK.md
+    # and the README describes the actual project (not generic multiclaude workflow).
 
     cd "$project_dir"
     git add -A
