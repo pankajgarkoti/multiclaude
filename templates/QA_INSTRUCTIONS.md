@@ -139,48 +139,27 @@ EOF
 
 Wait for the supervisor to send a `RUN_QA` message. When received, proceed to Phase 2.
 
-### Phase 2: Read Tech Stack and Start the App
+### Phase 2: Start the App
 
-First, read TECHSTACK.md to understand how to run this project:
+Read TECHSTACK.md and copy the exact dev server command:
 
 ```bash
 cat .multiclaude/specs/TECHSTACK.md
 ```
 
-Then start the app using the appropriate method for the tech stack:
+Start the app using the command from the "Run Dev Server" section:
 
-**For Python/FastAPI projects:**
 ```bash
-# Check for virtual environment
-if [[ -d ".venv" ]]; then
-  source .venv/bin/activate
-fi
-# Start the server (check PROJECT_SPEC for actual command)
-uvicorn src.server.main:app --reload &
+# Copy the EXACT command from TECHSTACK.md, e.g.:
+# uvicorn src.server.main:app --reload --port 8080 &
+# npm run dev &
+# cargo run &
+
 APP_PID=$!
-```
-
-**For Node.js projects:**
-```bash
-# Detect package manager
-if [[ -f "pnpm-lock.yaml" ]]; then
-  PKG_MGR="pnpm"
-elif [[ -f "yarn.lock" ]]; then
-  PKG_MGR="yarn"
-else
-  PKG_MGR="npm"
-fi
-$PKG_MGR run dev &
-APP_PID=$!
-```
-
-**For other stacks:** Check TECHSTACK.md and PROJECT_SPEC.md for the correct run command.
-
-```bash
-# Wait for server to be ready
 sleep 10
-echo "App should be running (check TECHSTACK.md for port)"
 ```
+
+The port and URL will be in TECHSTACK.md or PROJECT_SPEC.md.
 
 ### Phase 3: Read the Standards
 

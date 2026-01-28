@@ -185,7 +185,10 @@ git commit -m "test(auth): add unit tests"
 ```bash
 echo "$(date -Iseconds) [TESTING] Running test suite" >> .multiclaude/status.log
 
-npm test
+# Copy the test command from TECHSTACK.md - example:
+# pytest tests/ -v
+# npm test
+# cargo test
 ```
 
 ### Phase 5: Log Complete

@@ -299,27 +299,59 @@ Before writing ANY feature spec, you MUST:
 # Project Tech Stack
 
 > **AUTHORITATIVE SOURCE** - All specs and code MUST use only these technologies.
+> **Workers/QA**: Copy commands from this file verbatim. Do not improvise.
 
 ## Language
-- [e.g., Python 3.11+]
+- Python 3.11+
 
 ## Frameworks
-- [e.g., FastAPI]
+- FastAPI (web framework)
+- Pydantic (validation)
 
 ## Testing
-- [e.g., pytest]
+- pytest
 
 ## Package Manager
-- [e.g., uv / pip]
+- uv
 
-## Other
-- [e.g., SQLite, Bash scripts]
+---
+
+## Commands
+
+**Copy these exactly when you need to run them.**
+
+### Install Dependencies
+\\\`\\\`\\\`bash
+uv sync
+\\\`\\\`\\\`
+
+### Run Dev Server
+\\\`\\\`\\\`bash
+uvicorn src.server.main:app --reload --host 127.0.0.1 --port 8080
+\\\`\\\`\\\`
+
+### Run Tests
+\\\`\\\`\\\`bash
+pytest tests/ -v
+\\\`\\\`\\\`
+
+### Type Check (if applicable)
+\\\`\\\`\\\`bash
+mypy src/
+\\\`\\\`\\\`
+
+### Lint (if applicable)
+\\\`\\\`\\\`bash
+ruff check src/
+\\\`\\\`\\\`
 \`\`\`
 
 **RULES:**
 - Copy EXACTLY what PROJECT_SPEC.md says - do NOT substitute technologies
-- If PROJECT_SPEC says "FastAPI (Python)", write Python/FastAPI - NOT TypeScript/Express
-- If no tech stack section exists, infer from config files (pyproject.toml, package.json)
+- Include ACTUAL RUNNABLE COMMANDS - not placeholders like "\$PKG_MGR install"
+- Derive commands from the project's actual config (pyproject.toml, package.json, Cargo.toml)
+- If the project has a README with commands, use those
+- If no tech stack section exists, infer from config files and write concrete commands
 
 ## ╔══════════════════════════════════════════════════════════════════════════════╗
 ## ║  STEP 2: ENFORCE TECH STACK IN ALL SPECS                                    ║
