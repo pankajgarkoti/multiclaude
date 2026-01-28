@@ -97,15 +97,20 @@ _phases_run_with_spinner() {
     ) &
     local parser_pid=$!
 
-    # Ctrl+C should kill the child and abort, not skip
-    trap '_spinner_interrupted=true; kill "$pid" "$parser_pid" 2>/dev/null; wait "$pid" "$parser_pid" 2>/dev/null' INT
+    # Ctrl+C should kill the child, restore terminal, and abort
+    trap '_spinner_interrupted=true; kill "$pid" "$parser_pid" 2>/dev/null; wait "$pid" "$parser_pid" 2>/dev/null; tput cnorm 2>/dev/null; stty echo icanon 2>/dev/null' INT
 
     local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local i=0
     local start=$SECONDS
     local last_detail=""
-    # Print initial spinner + blank detail line
-    printf "\n" >&2
+    # Hide cursor and disable input echo during spinner
+    tput civis 2>/dev/null
+    local old_stty
+    old_stty=$(stty -g 2>/dev/null)
+    stty -echo -icanon 2>/dev/null
+    # Print initial lines for spinner and detail
+    printf "\n\n" >&2
     local cols
     cols=$(tput cols 2>/dev/null || echo 80)
     while kill -0 "$pid" 2>/dev/null; do
@@ -116,20 +121,21 @@ _phases_run_with_spinner() {
 
         # Truncate content to terminal width to prevent line wrapping
         local max_label=$(( cols - 10 ))  # room for spinner char + elapsed + padding
-        local max_detail=$(( cols - 8 ))  # room for "    ↳ " prefix
+        local max_detail=$(( cols - 6 ))  # room for "  ↳ " prefix
         local trunc_detail="${last_detail:-starting...}"
         [[ ${#trunc_detail} -gt $max_detail ]] && trunc_detail="${trunc_detail:0:$max_detail}"
-        # Move up 1 line, clear it, print spinner, move down, clear, print detail (indented)
-        printf "\033[1A\033[2K  ${CYAN}%s${NC} %s ${DIM}(%ds)${NC}\n\033[2K    ${DIM}↳ %s${NC}" \
+        # Move up 1 line, clear it, go to col 0, print spinner, newline, clear, go to col 0, print detail
+        printf "\033[1A\033[2K\033[G${CYAN}%s${NC} %s ${DIM}(%ds)${NC}\n\033[2K\033[G  ${DIM}↳ %s${NC}" \
             "${spin:i++%${#spin}:1}" "${label:0:$max_label}" "$elapsed" "$trunc_detail" >&2
         sleep 0.15
     done
     wait "$pid" || true
     kill "$parser_pid" 2>/dev/null; wait "$parser_pid" 2>/dev/null || true
-    # Clear spinner line (go up, clear, go to column 0)
-    # Clear detail line (go down, clear)
-    # Return to spinner line position
-    printf "\033[1A\033[2K\033[G\033[1B\033[2K\033[1A\033[G" >&2
+    # Clear spinner and detail lines, move back up to where we started
+    printf "\033[1A\033[2K\033[G\033[1B\033[2K\033[G\033[2A" >&2
+    # Restore cursor and terminal settings
+    tput cnorm 2>/dev/null
+    [[ -n "$old_stty" ]] && stty "$old_stty" 2>/dev/null
     rm -f "$output_file" "$status_file"
 
     # Restore default INT handler and re-raise if we were interrupted
