@@ -134,6 +134,41 @@ prompt_input() {
     fi
 }
 
+# Prompt for multiline input using $EDITOR (like git commit)
+prompt_multiline() {
+    local prompt="$1"
+    local tmpfile
+    tmpfile=$(mktemp)
+
+    # Add instructions as comments
+    cat > "$tmpfile" << 'TEMPLATE'
+
+# Enter your project description above this line.
+# Lines starting with # are ignored.
+#
+# Describe what you're building, including:
+# - What the project does
+# - Tech stack (language, frameworks, databases)
+# - Key features
+# - Any specific requirements
+#
+# Save and exit when done. Leave empty to cancel.
+TEMPLATE
+
+    # Open editor
+    local editor="${EDITOR:-${VISUAL:-nano}}"
+    echo -e "${BOLD}$prompt${NC}"
+    echo -e "${DIM}Opening $editor... Save and exit when done.${NC}"
+    $editor "$tmpfile" </dev/tty >/dev/tty
+
+    # Extract content (remove comment lines, preserve blank lines between paragraphs)
+    local result
+    result=$(grep -v '^[[:space:]]*#' "$tmpfile" | sed -e '1{/^$/d}' -e '${/^$/d}')
+    rm -f "$tmpfile"
+
+    echo "$result"
+}
+
 prompt_confirm() {
     local prompt="$1"
     local default="${2:-y}"
@@ -1133,11 +1168,11 @@ main() {
     if [[ -n "$arg_desc" ]]; then
         project_description="$arg_desc"
     else
-        project_description=$(prompt_input "Project description" "")
+        project_description=$(prompt_multiline "Project description")
     fi
 
     if [[ -z "$project_description" ]]; then
-        log_error "Project description is required"
+        log_error "Project description is required (editor was empty or cancelled)"
         exit 1
     fi
 
