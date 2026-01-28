@@ -106,15 +106,22 @@ _phases_run_with_spinner() {
     local last_detail=""
     # Print initial spinner + blank detail line
     printf "\n" >&2
+    local cols
+    cols=$(tput cols 2>/dev/null || echo 80)
     while kill -0 "$pid" 2>/dev/null; do
         local elapsed=$(( SECONDS - start ))
         local detail=""
         [[ -s "$status_file" ]] && detail=$(cat "$status_file" 2>/dev/null)
         [[ -n "$detail" ]] && last_detail="$detail"
 
+        # Truncate content to terminal width to prevent line wrapping
+        local max_label=$(( cols - 10 ))  # room for spinner char + elapsed + padding
+        local max_detail=$(( cols - 6 ))  # room for "  ↳ " prefix
+        local trunc_detail="${last_detail:-starting...}"
+        [[ ${#trunc_detail} -gt $max_detail ]] && trunc_detail="${trunc_detail:0:$max_detail}"
         # Move up 1 line, clear it, print spinner, move down, clear, print detail
         printf "\033[1A\033[2K  ${CYAN}%s${NC} %s ${DIM}(%ds)${NC}\n\033[2K  ${DIM}↳ %s${NC}" \
-            "${spin:i++%${#spin}:1}" "$label" "$elapsed" "${last_detail:-starting...}" >&2
+            "${spin:i++%${#spin}:1}" "${label:0:$max_label}" "$elapsed" "$trunc_detail" >&2
         sleep 0.15
     done
     wait "$pid" || true
