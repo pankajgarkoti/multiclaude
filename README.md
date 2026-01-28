@@ -95,8 +95,8 @@ multiclaude new -f project-brief.txt
 This runs a bootstrap process that:
 
 1. **Research Phase**: Claude researches similar products by browsing URLs mentioned in your description and finding 2-3 competitors. Captures UI/UX patterns and best practices into `.multiclaude/research-findings.md`
-2. **Planning Phase**: Claude creates project specs (`specs/PROJECT_SPEC.md`) and individual feature specs (`specs/features/*.spec.md`) informed by research findings
-3. **Standards Generation**: Project-specific quality standards are generated in `specs/STANDARDS.md`
+2. **Planning Phase**: Claude creates project specs (`.multiclaude/specs/PROJECT_SPEC.md`) and individual feature specs (`.multiclaude/specs/features/*.spec.md`) informed by research findings
+3. **Standards Generation**: Project-specific quality standards are generated in `.multiclaude/specs/STANDARDS.md`
 4. **Development Loop**: Optionally launches the development session
 
 ### Add Feature
