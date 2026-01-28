@@ -8,7 +8,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="/usr/local/bin"
-VERSION="0.1.10"
+# NOTE: Keep in sync with VERSION in ./multiclaude
+VERSION="0.1.11"
 
 # Colors
 RED='\033[0;31m'
