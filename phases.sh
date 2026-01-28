@@ -29,6 +29,109 @@ _phases_warn() {
     echo -e "${YELLOW}[phases]${NC} $1"
 }
 
+DIM='\033[2m'
+
+# Run a claude -p command in the background with a spinner showing live actions.
+# Injects --output-format stream-json --verbose into the claude command to parse
+# tool calls and text output in real time, displaying them on a status line.
+_phases_run_with_spinner() {
+    local label="$1"
+    shift
+
+    local output_file status_file
+    output_file=$(mktemp)
+    status_file=$(mktemp)
+    local _spinner_interrupted=false
+
+    # Inject streaming flags into the claude command so we get JSON events
+    local cmd=("$@")
+    local stream_cmd=()
+    for arg in "${cmd[@]}"; do
+        stream_cmd+=("$arg")
+    done
+    stream_cmd+=(--output-format stream-json --verbose)
+
+    # Run claude in background, stream JSON events to file
+    "${stream_cmd[@]}" > "$output_file" 2>/dev/null &
+    local pid=$!
+
+    # Background parser: read JSON stream and extract status updates
+    (
+        tail -f "$output_file" 2>/dev/null | while IFS= read -r line; do
+            # Skip empty lines
+            [[ -z "$line" ]] && continue
+            # Extract tool_use name -> "Using <ToolName>"
+            local tool_name
+            tool_name=$(echo "$line" | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//')
+            if [[ -n "$tool_name" ]]; then
+                # Try to get a description or command for Bash/Read/Edit tools
+                local extra=""
+                case "$tool_name" in
+                    Bash)
+                        extra=$(echo "$line" | grep -o '"description":"[^"]*"' | head -1 | sed 's/"description":"//;s/"$//')
+                        [[ -z "$extra" ]] && extra=$(echo "$line" | grep -o '"command":"[^"]*"' | head -1 | sed 's/"command":"//;s/"$//' | cut -c1-50)
+                        ;;
+                    Read|Edit|Write|Glob|Grep)
+                        extra=$(echo "$line" | grep -o '"file_path":"[^"]*"' | head -1 | sed 's/"file_path":"//;s/"$//')
+                        [[ -z "$extra" ]] && extra=$(echo "$line" | grep -o '"pattern":"[^"]*"' | head -1 | sed 's/"pattern":"//;s/"$//')
+                        ;;
+                    WebSearch|WebFetch)
+                        extra=$(echo "$line" | grep -o '"query":"[^"]*"' | head -1 | sed 's/"query":"//;s/"$//')
+                        [[ -z "$extra" ]] && extra=$(echo "$line" | grep -o '"url":"[^"]*"' | head -1 | sed 's/"url":"//;s/"$//')
+                        ;;
+                esac
+                if [[ -n "$extra" ]]; then
+                    echo "${tool_name}: ${extra}" | cut -c1-72 > "$status_file"
+                else
+                    echo "Using ${tool_name}" > "$status_file"
+                fi
+                continue
+            fi
+            # Extract text content snippets from assistant messages
+            local text
+            text=$(echo "$line" | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//')
+            if [[ -n "$text" && ${#text} -gt 10 ]]; then
+                echo "$text" | cut -c1-72 > "$status_file"
+            fi
+        done
+    ) &
+    local parser_pid=$!
+
+    # Ctrl+C should kill the child and abort, not skip
+    trap '_spinner_interrupted=true; kill "$pid" "$parser_pid" 2>/dev/null; wait "$pid" "$parser_pid" 2>/dev/null' INT
+
+    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    local start=$SECONDS
+    local last_detail=""
+    # Print initial spinner + blank detail line
+    printf "\n" >&2
+    while kill -0 "$pid" 2>/dev/null; do
+        local elapsed=$(( SECONDS - start ))
+        local detail=""
+        [[ -s "$status_file" ]] && detail=$(cat "$status_file" 2>/dev/null)
+        [[ -n "$detail" ]] && last_detail="$detail"
+
+        # Move up 1 line, clear it, print spinner, move down, clear, print detail
+        printf "\033[1A\033[2K  ${CYAN}%s${NC} %s ${DIM}(%ds)${NC}\n\033[2K  ${DIM}↳ %s${NC}" \
+            "${spin:i++%${#spin}:1}" "$label" "$elapsed" "${last_detail:-starting...}" >&2
+        sleep 0.15
+    done
+    wait "$pid" || true
+    kill "$parser_pid" 2>/dev/null; wait "$parser_pid" 2>/dev/null || true
+    # Clear both lines
+    printf "\033[1A\033[2K\033[1B\033[2K\033[1A" >&2
+    rm -f "$output_file" "$status_file"
+
+    # Restore default INT handler and re-raise if we were interrupted
+    trap - INT
+    if $_spinner_interrupted; then
+        echo "" >&2
+        _phases_warn "Interrupted by user"
+        kill -INT $$
+    fi
+}
+
 #-------------------------------------------------------------------------------
 # run_research_phase <project_dir> <context>
 #
@@ -110,12 +213,7 @@ PROMPT_EOF
     # Inject the actual context
     research_prompt="${research_prompt//PROJECT_CONTEXT_PLACEHOLDER/$context}"
 
-    _phases_log "Research agent is working (this may take a few minutes)..."
-    claude -p "$research_prompt" --dangerously-skip-permissions 2>&1 | while IFS= read -r line; do
-        # Print a dot for each line of output to show activity
-        printf "${CYAN}.${NC}" >&2
-    done || true
-    echo "" >&2  # newline after dots
+    _phases_run_with_spinner "Research agent working..." claude -p "$research_prompt" --dangerously-skip-permissions
 
     if [[ ! -f "$project_dir/.multiclaude/research-findings.md" ]]; then
         _phases_warn "Research phase did not produce findings; creating placeholder."
@@ -218,11 +316,7 @@ If no feature specs exist yet AND a PROJECT_SPEC.md exists:
 When done, output: SPECS_ENRICHED
 PROMPT_EOF
 
-    _phases_log "Spec enrichment agent is working (this may take a few minutes)..."
-    claude -p "$spec_prompt" --dangerously-skip-permissions 2>&1 | while IFS= read -r line; do
-        printf "${CYAN}.${NC}" >&2
-    done || true
-    echo "" >&2
+    _phases_run_with_spinner "Spec enrichment agent working..." claude -p "$spec_prompt" --dangerously-skip-permissions
 
     # Auto-detect features file if not created
     if [[ ! -f "$project_dir/.multiclaude/specs/.features" ]]; then
@@ -331,11 +425,7 @@ As a [user/developer], [user story].
 When done, output: STANDARDS_COMPLETE
 PROMPT_EOF
 
-    _phases_log "Standards agent is working (this may take a few minutes)..."
-    claude -p "$standards_prompt" --dangerously-skip-permissions 2>&1 | while IFS= read -r line; do
-        printf "${CYAN}.${NC}" >&2
-    done || true
-    echo "" >&2
+    _phases_run_with_spinner "Standards agent working..." claude -p "$standards_prompt" --dangerously-skip-permissions
 
     if [[ ! -f "$project_dir/.multiclaude/specs/STANDARDS.md" ]]; then
         _phases_warn "Standards generation did not produce output; creating generic fallback."

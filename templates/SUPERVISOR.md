@@ -164,9 +164,9 @@ while true; do
 
   all_complete=true
 
-  for log in .multiclaude/.multiclaude/worktrees/feature-*/.multiclaude/status.log; do
+  for log in .multiclaude/worktrees/feature-*/.multiclaude/status.log; do
     if [[ -f "$log" ]]; then
-      feature=$(echo "$log" | sed 's|.multiclaude/worktrees/feature-||' | sed 's|/.multiclaude/status.log||')
+      feature=$(echo "$log" | sed 's|.*/feature-||' | sed 's|/.multiclaude/status.log||')
       status=$(grep -E '\[(PENDING|IN_PROGRESS|BLOCKED|TESTING|COMPLETE|FAILED)\]' "$log" 2>/dev/null | tail -1)
       echo "[$feature] $status"
 
@@ -538,7 +538,7 @@ Location: Browser console
 EOF
 
 # Reset worker status
-echo "$(date -Iseconds) [IN_PROGRESS] FIX_TASK assigned: STD-001" >> .multiclaude/worktrees/feature-$FEATURE/.multiclaude/status.log
+echo "$(date -Iseconds) [IN_PROGRESS] FIX_TASK assigned: STD-001" >> .multiclaude/worktrees/feature-${FEATURE}/.multiclaude/status.log
 
 # Signal worker via mailbox
 cat >> .multiclaude/mailbox << EOF

@@ -195,31 +195,41 @@ setup_worktrees() {
 
     printf "  Features: ${CYAN}${features[*]}${NC}\n"
 
-    # Create a base branch off main for this session
-    local base_branch="multiclaude/${PROJECT_NAME}-$(date +%Y%m%d-%H%M%S)"
-    git checkout main 2>/dev/null || git checkout -b main 2>/dev/null
-    git checkout -b "$base_branch" 2>/dev/null || git checkout "$base_branch" 2>/dev/null
-    echo "$base_branch" > "$PROJECT_PATH/.multiclaude/BASE_BRANCH"
-    log_success "Created base branch: $base_branch"
+    # External worktree location — keeps worktrees outside the main repo tree
+    local worktree_base="/tmp/multiclaude/${PROJECT_NAME}"
+    mkdir -p "$worktree_base"
+    echo "$worktree_base" > "$PROJECT_PATH/.multiclaude/WORKTREE_DIR"
 
-    # Create worktrees directory
-    mkdir -p .multiclaude/worktrees
+    # Symlink for backward-compat globbing (status, logs, templates)
+    ln -sfn "$worktree_base" "$PROJECT_PATH/.multiclaude/worktrees"
+
+    # Create base branch WITHOUT switching the main repo
+    local base_branch="multiclaude/${PROJECT_NAME}-$(date +%Y%m%d-%H%M%S)"
+    git branch "$base_branch" HEAD 2>/dev/null || true
+    echo "$base_branch" > "$PROJECT_PATH/.multiclaude/BASE_BRANCH"
+    log_success "Created base branch: $base_branch (main repo unchanged)"
+
+    # Create base worktree
+    if [[ ! -d "${worktree_base}/base" ]]; then
+        git worktree add "${worktree_base}/base" "$base_branch"
+        log_success "Created base worktree: ${worktree_base}/base"
+    fi
 
     for feature in "${features[@]}"; do
         local branch_name="feature/${feature}"
-        local worktree_path="${PROJECT_PATH}/.multiclaude/worktrees/feature-${feature}"
+        local worktree_path="${worktree_base}/feature-${feature}"
 
         if [[ -d "$worktree_path" ]]; then
             printf "  ${DIM}%-15s already exists${NC}\n" "$feature"
             continue
         fi
 
-        # Create branch if it doesn't exist
+        # Create feature branch off the base branch
         if ! git show-ref --verify --quiet "refs/heads/${branch_name}"; then
-            git branch "${branch_name}" 2>/dev/null
+            git branch "${branch_name}" "$base_branch" 2>/dev/null
         fi
 
-        # Create worktree
+        # Create worktree in /tmp
         git worktree add "${worktree_path}" "${branch_name}" 2>/dev/null
 
         # Setup worktree .multiclaude directory
@@ -252,6 +262,14 @@ setup_worktrees() {
 install_templates() {
     log_step "Installing agent templates..."
 
+    local wt_base
+    if [[ -f "$PROJECT_PATH/.multiclaude/WORKTREE_DIR" ]]; then
+        wt_base=$(cat "$PROJECT_PATH/.multiclaude/WORKTREE_DIR")
+    else
+        wt_base="${PROJECT_PATH}/.multiclaude/worktrees"
+    fi
+    local base_wt="${wt_base}/base"
+
     mkdir -p "$PROJECT_PATH/.multiclaude"
     mkdir -p "$PROJECT_PATH/.multiclaude/qa-reports"
     mkdir -p "$PROJECT_PATH/.multiclaude/fix-tasks"
@@ -276,7 +294,7 @@ install_templates() {
 
     # Worker templates
     if [[ -f "$SCRIPT_DIR/templates/WORKER.md" ]]; then
-        for worktree in "$PROJECT_PATH"/.multiclaude/worktrees/feature-*; do
+        for worktree in "${wt_base}"/feature-*; do
             if [[ -d "$worktree" ]]; then
                 cp "$SCRIPT_DIR/templates/WORKER.md" "$worktree/.multiclaude/WORKER.md"
             fi
@@ -288,6 +306,21 @@ install_templates() {
     if [[ ! -f "$PROJECT_PATH/.multiclaude/specs/STANDARDS.md" ]] && [[ -f "$SCRIPT_DIR/templates/STANDARDS.template.md" ]]; then
         cp "$SCRIPT_DIR/templates/STANDARDS.template.md" "$PROJECT_PATH/.multiclaude/specs/STANDARDS.md"
         printf "  ${GREEN}✓${NC} STANDARDS.md\n"
+    fi
+
+    # Mirror .multiclaude/ into the base worktree so supervisor & QA can use relative paths
+    if [[ -d "$base_wt" ]]; then
+        log_step "Syncing .multiclaude/ into base worktree..."
+        mkdir -p "${base_wt}/.multiclaude"
+        # Symlink key directories/files so writes propagate back
+        for item in mailbox specs qa-reports fix-tasks SUPERVISOR.md QA_INSTRUCTIONS.md BASE_BRANCH WORKTREE_DIR; do
+            if [[ -e "$PROJECT_PATH/.multiclaude/$item" ]]; then
+                ln -sfn "$PROJECT_PATH/.multiclaude/$item" "${base_wt}/.multiclaude/$item"
+            fi
+        done
+        # Symlink worktrees so status log globs work from base worktree
+        ln -sfn "$wt_base" "${base_wt}/.multiclaude/worktrees"
+        printf "  ${GREEN}✓${NC} base worktree .multiclaude/ symlinked\n"
     fi
 
     log_success "Templates installed"
@@ -321,13 +354,21 @@ launch_agents() {
 
     local window_num=1
 
+    # Read external worktree base
+    local worktree_base
+    if [[ -f "$PROJECT_PATH/.multiclaude/WORKTREE_DIR" ]]; then
+        worktree_base=$(cat "$PROJECT_PATH/.multiclaude/WORKTREE_DIR")
+    else
+        worktree_base="${PROJECT_PATH}/.multiclaude/worktrees"
+    fi
+
     #─────────────────────────────────────────────────────────────────────
     # Window 1: Supervisor
     #─────────────────────────────────────────────────────────────────────
     printf "  Creating window $window_num: ${CYAN}supervisor${NC}..."
 
     tmux new-window -t "$SESSION_NAME" -n "supervisor" \
-        "cd '$PROJECT_PATH' && claude --dangerously-skip-permissions"
+        "cd '${worktree_base}/base' && claude --dangerously-skip-permissions"
     # Lock window name to prevent Claude Code from renaming it
     tmux set-option -t "$SESSION_NAME:supervisor" allow-rename off
 
@@ -347,7 +388,7 @@ launch_agents() {
     printf "  Creating window $window_num: ${CYAN}qa${NC}..."
 
     tmux new-window -t "$SESSION_NAME" -n "qa" \
-        "cd '$PROJECT_PATH' && claude --dangerously-skip-permissions"
+        "cd '${worktree_base}/base' && claude --dangerously-skip-permissions"
     # Lock window name to prevent Claude Code from renaming it
     tmux set-option -t "$SESSION_NAME:qa" allow-rename off
 
@@ -364,7 +405,7 @@ launch_agents() {
     #─────────────────────────────────────────────────────────────────────
     # Windows 3+: Workers
     #─────────────────────────────────────────────────────────────────────
-    for worktree in "$PROJECT_PATH"/.multiclaude/worktrees/feature-*; do
+    for worktree in "${worktree_base}"/feature-*; do
         if [[ -d "$worktree" ]]; then
             local feature=$(basename "$worktree" | sed 's/feature-//')
 
@@ -468,8 +509,6 @@ maybe_create_pr() {
         return 0
     fi
 
-    cd "$PROJECT_PATH"
-
     # Read the base branch name
     local base_branch_file="$PROJECT_PATH/.multiclaude/BASE_BRANCH"
     if [[ ! -f "$base_branch_file" ]]; then
@@ -481,8 +520,17 @@ maybe_create_pr() {
     local pr_branch
     pr_branch=$(cat "$base_branch_file")
 
+    # Use base worktree for push (don't switch main repo)
+    local worktree_base=""
+    [[ -f "$PROJECT_PATH/.multiclaude/WORKTREE_DIR" ]] && worktree_base=$(cat "$PROJECT_PATH/.multiclaude/WORKTREE_DIR")
+    if [[ -n "$worktree_base" && -d "${worktree_base}/base" ]]; then
+        cd "${worktree_base}/base"
+    else
+        cd "$PROJECT_PATH"
+        git checkout "$pr_branch" 2>/dev/null
+    fi
+
     log_step "Pushing base branch: $pr_branch"
-    git checkout "$pr_branch" 2>/dev/null
 
     if ! git push -u origin "$pr_branch" 2>/dev/null; then
         log_error "Failed to push branch"
@@ -521,8 +569,23 @@ cleanup_project() {
 
     cd "$PROJECT_PATH"
 
-    # Remove worktrees
-    if [[ -d "$PROJECT_PATH/.multiclaude/worktrees" ]]; then
+    # Read external worktree dir
+    local worktree_base=""
+    [[ -f "$PROJECT_PATH/.multiclaude/WORKTREE_DIR" ]] && worktree_base=$(cat "$PROJECT_PATH/.multiclaude/WORKTREE_DIR")
+
+    # Remove all worktrees (base + features) from /tmp
+    if [[ -n "$worktree_base" && -d "$worktree_base" ]]; then
+        log_step "Removing worktrees from ${worktree_base}..."
+        for wt in "$worktree_base"/*; do
+            if [[ -d "$wt" ]]; then
+                local wt_name=$(basename "$wt")
+                git worktree remove "$wt" --force 2>/dev/null || rm -rf "$wt"
+                log_success "Removed $wt_name"
+            fi
+        done
+        rmdir "$worktree_base" 2>/dev/null || true
+    elif [[ -d "$PROJECT_PATH/.multiclaude/worktrees" ]]; then
+        # Fallback for old-style in-repo worktrees
         log_step "Removing worktrees..."
         for worktree in "$PROJECT_PATH"/.multiclaude/worktrees/feature-*; do
             if [[ -d "$worktree" ]]; then
@@ -533,6 +596,9 @@ cleanup_project() {
         done
         rmdir "$PROJECT_PATH/.multiclaude/worktrees" 2>/dev/null || true
     fi
+
+    # Remove symlink
+    rm -f "$PROJECT_PATH/.multiclaude/worktrees"
 
     # Remove feature branches (but NOT the base branch — it's the PR branch)
     log_step "Removing feature branches..."
@@ -665,6 +731,18 @@ run_dashboard() {
             printf "${YELLOW}QA NEEDS FIXES${NC}\n"
         elif [[ -f "$PROJECT_PATH/.multiclaude/ALL_MERGED" ]]; then
             printf "${CYAN}MERGED - QA PENDING${NC}\n"
+        elif [[ "$total" -gt 0 && "$complete" -eq "$total" ]]; then
+            # All workers done — check if QA passed via mailbox even if sentinel file is missing
+            if [[ -f "$PROJECT_PATH/.multiclaude/mailbox" ]] && \
+               grep -q 'QA_RESULT: PASS' "$PROJECT_PATH/.multiclaude/mailbox" 2>/dev/null; then
+                printf "${GREEN}PROJECT COMPLETE${NC}\n"
+                echo "$(date -Iseconds) - All features complete and QA passed" > "$PROJECT_PATH/.multiclaude/PROJECT_COMPLETE"
+                echo ""
+                maybe_create_pr
+                cleanup_project
+            else
+                printf "${YELLOW}ALL WORKERS DONE${NC} — waiting for QA\n"
+            fi
         else
             printf "${YELLOW}IN PROGRESS${NC} ($complete/$total)\n"
         fi

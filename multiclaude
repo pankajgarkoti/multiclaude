@@ -105,15 +105,24 @@ cmd_new() {
 
     print_banner
 
+    _show_next_steps() {
+        local dir="$1"
+        echo ""
+        printf "${BOLD}Next step:${NC} run ${CYAN}multiclaude run ${dir}${NC} to start development\n"
+        echo ""
+    }
+
     if [[ -n "$from_file" ]]; then
         # Non-interactive mode - use current directory
-        "$SCRIPT_DIR/bootstrap.sh" --from-file "$from_file" --dir "$(pwd)"
+        "$SCRIPT_DIR/bootstrap.sh" --from-file "$from_file" --dir "$(pwd)" || true
+        _show_next_steps "."
     elif [[ -n "$use_current_dir" ]]; then
         # Use current directory
         local dir_name="$(basename "$(pwd)")"
         printf "${BOLD}Creating project in current directory: ${dir_name}${NC}\n"
         echo ""
-        "$SCRIPT_DIR/bootstrap.sh" --name "$dir_name" --dir "$(pwd)"
+        "$SCRIPT_DIR/bootstrap.sh" --name "$dir_name" --dir "$(pwd)" || true
+        _show_next_steps "."
     else
         # Interactive mode (existing)
         if [[ -z "$name" ]]; then
@@ -133,7 +142,8 @@ cmd_new() {
         echo ""
 
         # Run bootstrap with project name pre-filled
-        "$SCRIPT_DIR/bootstrap.sh" --name "$name"
+        "$SCRIPT_DIR/bootstrap.sh" --name "$name" || true
+        _show_next_steps "$name"
     fi
 }
 

@@ -1035,26 +1035,22 @@ EOF
         git checkout -q -b main
     fi
 
-    # Create tmux session
-    local session_name="claude-${project_name}-setup"
+    # Run phases inline
+    log_info "Running phases: research -> spec -> standards"
+    if ! run_all_phases "$project_dir" "$brief_content"; then
+        log_warn "Phase execution had issues — specs may need manual review"
+    fi
 
-    log_info "Starting setup session: $session_name"
+    # Commit scaffold
+    cd "$project_dir"
+    git add -A
+    git commit -q -m "initial scaffold from brief" 2>/dev/null || true
 
-    tmux new-session -d -s "$session_name" -n "setup" \
-        "cd '$project_dir' && \
-         source '$SCRIPT_DIR/phases.sh' && \
-         run_all_phases '$project_dir' \"\$(cat '$project_dir/.multiclaude/project-brief.txt')\" && \
-         echo '' && echo 'Setup complete. Press Enter to finalize...' && read && \
-         git add -A && git commit -m 'Initial scaffold from brief' && \
-         echo 'Project ready! Run: multiclaude run $project_dir' && \
-         echo 'Press Enter to close session...' && read"
+    log_success "Project scaffolded"
 
-    log_success "Setup session created: $session_name"
-    echo ""
-    echo "Claude will read the brief and run: research -> planning -> standards"
-    echo ""
-    echo "Attach: tmux attach -t $session_name"
-    echo "Kill:   tmux kill-session -t $session_name"
+    # Launch dev session via loop.sh
+    log_info "Starting development session..."
+    exec "$SCRIPT_DIR/loop.sh" "$project_dir"
 }
 
 main() {
@@ -1162,7 +1158,17 @@ main() {
     create_mcp_config "$project_dir"
 
     # Run all phases: research -> spec -> standards
-    run_all_phases "$project_dir" "$project_description"
+    if ! run_all_phases "$project_dir" "$project_description"; then
+        log_warn "Phase execution failed — you can re-run phases later with 'multiclaude run'"
+        echo ""
+        echo -e "  ${BOLD}Project structure created at:${NC} $project_dir"
+        echo ""
+        echo -e "  ${BOLD}Next steps:${NC}"
+        echo -e "    1. Edit specs in ${CYAN}.multiclaude/specs/${NC}"
+        echo -e "    2. Run ${CYAN}multiclaude run $project_dir${NC} to start development"
+        echo ""
+        exit 0
+    fi
 
     # Extract features
     local features=()

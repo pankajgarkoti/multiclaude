@@ -247,7 +247,14 @@ fi
 
 # Create worktree
 BRANCH_NAME="feature/${FEATURE_NAME}"
-WORKTREE_PATH="${PROJECT_PATH}/.multiclaude/worktrees/feature-${FEATURE_NAME}"
+
+# Use external worktree dir if available, otherwise fall back to in-repo
+if [[ -f "$PROJECT_PATH/.multiclaude/WORKTREE_DIR" ]]; then
+    WORKTREE_BASE=$(cat "$PROJECT_PATH/.multiclaude/WORKTREE_DIR")
+else
+    WORKTREE_BASE="${PROJECT_PATH}/.multiclaude/worktrees"
+fi
+WORKTREE_PATH="${WORKTREE_BASE}/feature-${FEATURE_NAME}"
 
 # Create feature branch off the base branch (if it exists), otherwise current HEAD
 BASE_BRANCH_REF="HEAD"
