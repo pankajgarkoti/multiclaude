@@ -7,17 +7,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="/usr/local/bin"
-# NOTE: Keep in sync with VERSION in ./multiclaude
-VERSION="0.1.11"
+source "$SCRIPT_DIR/common.sh"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-BOLD='\033[1m'
+INSTALL_DIR="/usr/local/bin"
 
 #───────────────────────────────────────────────────────────────────────────────
 # OS Detection

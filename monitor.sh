@@ -10,8 +10,7 @@
 #═══════════════════════════════════════════════════════════════════════════════
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Source shared phases library
+source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/phases.sh"
 
 PROJECT_PATH="$1"
@@ -25,16 +24,6 @@ cd "$PROJECT_PATH"
 
 PROJECT_NAME="$(basename "$PROJECT_PATH")"
 SESSION_NAME="claude-${PROJECT_NAME}"
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-BOLD='\033[1m'
-DIM='\033[2m'
 
 #───────────────────────────────────────────────────────────────────────────────
 # Helper Functions

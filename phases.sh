@@ -7,15 +7,7 @@
 #===============================================================================
 
 PHASES_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Colors (safe to re-declare; no-ops if already set)
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-BOLD='\033[1m'
+source "$PHASES_SCRIPT_DIR/common.sh"
 
 _phases_log() {
     echo -e "${BLUE}[phases]${NC} $1"
@@ -28,8 +20,6 @@ _phases_ok() {
 _phases_warn() {
     echo -e "${YELLOW}[phases]${NC} $1"
 }
-
-DIM='\033[2m'
 
 # Run a claude -p command in the background with a spinner showing live actions.
 # Injects --output-format stream-json --verbose into the claude command to parse

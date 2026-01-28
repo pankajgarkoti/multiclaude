@@ -17,20 +17,11 @@ _resolve_symlink() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "$(_resolve_symlink "${BASH_SOURCE[0]}")")" && pwd)"
-VERSION="0.1.11"
+source "$SCRIPT_DIR/common.sh"
 
 # Global flags
 VERBOSE=""
 DRY_RUN=""
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-BOLD='\033[1m'
-DIM='\033[2m'
 
 # Helper functions
 log_verbose() {
