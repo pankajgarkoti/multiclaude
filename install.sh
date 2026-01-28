@@ -8,7 +8,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="/usr/local/bin"
-VERSION="1.0.0"
+VERSION="0.1.9"
 
 # Colors
 RED='\033[0;31m'
