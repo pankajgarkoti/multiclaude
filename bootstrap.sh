@@ -1245,13 +1245,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
     log_success "Project ready at $project_dir"
     echo ""
 
-    if prompt_confirm "Start development loop?" "y"; then
-        multiclaude run "$project_dir"
-    else
-        echo ""
-        echo "Run: ${CYAN}multiclaude run $project_dir${NC}"
-        echo ""
-    fi
+    # Auto-start development loop
+    multiclaude run "$project_dir"
 }
 
 # Run main
