@@ -284,87 +284,29 @@ You are a SPEC ENRICHMENT AGENT. Your job is to enrich feature specifications wi
 
 ${context_section}
 
-## ╔══════════════════════════════════════════════════════════════════════════════╗
-## ║  STEP 1: EXTRACT TECH STACK (MANDATORY - DO THIS FIRST)                     ║
-## ╚══════════════════════════════════════════════════════════════════════════════╝
+## Step 1: Extract Tech Stack (do this first)
 
-Before writing ANY feature spec, you MUST:
+Before writing any feature spec:
 
-1. Read \`.multiclaude/specs/PROJECT_SPEC.md\`
-2. Find the tech stack (look for "Technology Stack", "Tech Stack", "Technologies")
-3. Create \`.multiclaude/specs/TECHSTACK.md\` with the EXACT technologies specified
+1. Read \`.multiclaude/specs/PROJECT_SPEC.md\` and find the tech stack
+2. Create \`.multiclaude/specs/TECHSTACK.md\` containing:
+   - Language and version (e.g., Python 3.11+)
+   - Frameworks (e.g., FastAPI, Pydantic)
+   - Test framework (e.g., pytest)
+   - Package manager (e.g., uv, pip, npm)
+   - Actual runnable commands for: install, dev server, tests, lint
+3. Derive commands from the project's config files (pyproject.toml, package.json, etc.)
 
-**TECHSTACK.md format:**
-\`\`\`markdown
-# Project Tech Stack
+**Critical**: Copy the tech stack from PROJECT_SPEC.md exactly. Do NOT substitute technologies.
 
-> **AUTHORITATIVE SOURCE** - All specs and code MUST use only these technologies.
-> **Workers/QA**: Copy commands from this file verbatim. Do not improvise.
+## Step 2: Enforce Tech Stack in All Specs
 
-## Language
-- Python 3.11+
+Every feature spec must use the technologies from TECHSTACK.md:
+- Correct language and file extensions
+- Correct framework imports
+- Correct test framework
 
-## Frameworks
-- FastAPI (web framework)
-- Pydantic (validation)
-
-## Testing
-- pytest
-
-## Package Manager
-- uv
-
----
-
-## Commands
-
-**Copy these exactly when you need to run them.**
-
-### Install Dependencies
-\\\`\\\`\\\`bash
-uv sync
-\\\`\\\`\\\`
-
-### Run Dev Server
-\\\`\\\`\\\`bash
-uvicorn src.server.main:app --reload --host 127.0.0.1 --port 8080
-\\\`\\\`\\\`
-
-### Run Tests
-\\\`\\\`\\\`bash
-pytest tests/ -v
-\\\`\\\`\\\`
-
-### Type Check (if applicable)
-\\\`\\\`\\\`bash
-mypy src/
-\\\`\\\`\\\`
-
-### Lint (if applicable)
-\\\`\\\`\\\`bash
-ruff check src/
-\\\`\\\`\\\`
-\`\`\`
-
-**RULES:**
-- Copy EXACTLY what PROJECT_SPEC.md says - do NOT substitute technologies
-- Include ACTUAL RUNNABLE COMMANDS - not placeholders like "\$PKG_MGR install"
-- Derive commands from the project's actual config (pyproject.toml, package.json, Cargo.toml)
-- If the project has a README with commands, use those
-- If no tech stack section exists, infer from config files and write concrete commands
-
-## ╔══════════════════════════════════════════════════════════════════════════════╗
-## ║  STEP 2: ENFORCE TECH STACK IN ALL SPECS                                    ║
-## ╚══════════════════════════════════════════════════════════════════════════════╝
-
-Every feature spec MUST match TECHSTACK.md:
-- Language: Use Python if TECHSTACK says Python (NOT TypeScript)
-- Framework: Use FastAPI if TECHSTACK says FastAPI (NOT Express)
-- File extensions: .py for Python, .ts for TypeScript
-- Imports: from fastapi import... (NOT import express)
-- Tests: pytest (NOT Jest)
-
-**If a spec uses wrong tech stack → REWRITE IT COMPLETELY**
+If any existing spec uses wrong technologies, rewrite it completely.
 
 ## Inputs
 
