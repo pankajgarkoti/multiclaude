@@ -163,7 +163,14 @@ TEMPLATE
 
     # Extract content (remove comment lines, preserve blank lines between paragraphs)
     local result
-    result=$(grep -v '^[[:space:]]*#' "$tmpfile" | sed -e '1{/^$/d}' -e '${/^$/d}')
+    result=$(grep -v '^[[:space:]]*#' "$tmpfile" | awk '
+        NF {p=1} p {lines[++n]=$0}
+        END {
+            # Trim trailing blank lines
+            while (n > 0 && lines[n] == "") n--
+            for (i=1; i<=n; i++) print lines[i]
+        }
+    ')
     rm -f "$tmpfile"
 
     echo "$result"
